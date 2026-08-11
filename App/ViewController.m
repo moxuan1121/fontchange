@@ -94,7 +94,7 @@ extern char **environ;
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-        initForOpeningContentTypes:@[UTTypeZIP] asCopy:YES];
+        initForOpeningContentTypes:@[UTTypeZIP] asCopy:NO];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
@@ -120,21 +120,11 @@ extern char **environ;
     NSString *name = self.pickingSlot == 1 ? @"primary.zip" : @"optional100.zip";
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
-    __block NSError *error = nil;
-    __block BOOL copied = NO;
     BOOL scoped = [source startAccessingSecurityScopedResource];
-    NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
-    [coordinator coordinateReadingItemAtURL:source
-                                    options:NSFileCoordinatorReadingWithoutChanges
-                                      error:&error
-                                 byAccessor:^(NSURL *newURL) {
-        copied = [NSFileManager.defaultManager copyItemAtURL:newURL
-                                                       toURL:[NSURL fileURLWithPath:destination]
-                                                      error:&error];
-    }];
+    int importStatus = [self runHelperArguments:@[@"--import", source.path, destination] wait:YES];
     if (scoped) [source stopAccessingSecurityScopedResource];
-    if (!copied) {
-        self.statusLabel.text = [NSString stringWithFormat:@"导入失败：%@", error.localizedDescription];
+    if (importStatus != 0) {
+        self.statusLabel.text = [NSString stringWithFormat:@"导入失败：root helper 无法读取所选文件（%d）。", importStatus];
         return;
     }
     if (self.pickingSlot == 1) {

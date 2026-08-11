@@ -308,6 +308,18 @@ int main(int argc, char *argv[]) {
         if ([mode isEqualToString:@"--install"] && argc == 4) {
             return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]]);
         }
+        if ([mode isEqualToString:@"--import"] && argc == 4) {
+            NSString *source = [NSString stringWithUTF8String:argv[2]];
+            NSString *destination = [NSString stringWithUTF8String:argv[3]];
+            if (![source.pathExtension.lowercaseString isEqualToString:@"zip"]) return 65;
+            NSString *parent = destination.stringByDeletingLastPathComponent;
+            [NSFileManager.defaultManager createDirectoryAtPath:parent
+                                    withIntermediateDirectories:YES
+                                                     attributes:nil
+                                                          error:nil];
+            NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
+            return runTool(cp, @[@"-f", source, destination]);
+        }
         if ([mode isEqualToString:@"--reboot-after-delay"] && argc == 3) {
             return rebootAfterDelay((unsigned int)MAX(5, atoi(argv[2])));
         }
