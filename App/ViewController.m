@@ -27,7 +27,7 @@ extern char **environ;
 
     UILabel *detailLabel = [[UILabel alloc] init];
     detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    detailLabel.text = @"应用会临时切换到日语并重启用户空间，随后自动恢复原语言并再次重启。整个过程会黑屏两次。";
+    detailLabel.text = @"应用会临时切换到英语并重启用户空间，随后自动恢复原语言并再次重启。整个过程会黑屏两次。";
     detailLabel.font = [UIFont systemFontOfSize:16];
     detailLabel.textColor = UIColor.secondaryLabelColor;
     detailLabel.numberOfLines = 0;
@@ -83,7 +83,7 @@ extern char **environ;
     BOOL pending = [NSFileManager.defaultManager fileExistsAtPath:FCStatePath()];
     NSString *message = pending
         ? @"将立即恢复原语言并重启用户空间。"
-        : @"将切换到日语并执行第一次用户空间重启。请保存所有 App 中未保存的内容。";
+        : @"将切换到英语并执行第一次用户空间重启。请保存所有 App 中未保存的内容。";
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认操作" message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -96,11 +96,11 @@ extern char **environ;
 
 - (void)runRefreshWithPendingState:(BOOL)pending {
     self.actionButton.enabled = NO;
-    self.statusLabel.text = pending ? @"正在恢复原语言…" : @"正在保存语言并切换至日语…";
+    self.statusLabel.text = pending ? @"正在恢复原语言…" : @"正在保存语言并切换至英语…";
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *error = nil;
-        BOOL success = pending ? FCRestoreSavedLanguage(&error) : FCBeginTemporaryJapanese(&error);
+        BOOL success = pending ? FCRestoreSavedLanguage(&error) : FCBeginTemporaryEnglish(&error);
         if (success) {
             success = [self spawnHelper:pending ? "--reboot" : "--reboot" error:&error];
         }
@@ -130,4 +130,3 @@ extern char **environ;
 }
 
 @end
-

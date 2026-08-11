@@ -22,7 +22,7 @@ static BOOL FCSetPreference(CFStringRef key, CFPropertyListRef value, CFStringRe
     return CFPreferencesSynchronize(kCFPreferencesAnyApplication, user, kCFPreferencesAnyHost);
 }
 
-BOOL FCBeginTemporaryJapanese(NSError **error) {
+BOOL FCBeginTemporaryEnglish(NSError **error) {
     CFPropertyListRef currentLanguages = FCCopyPreference(CFSTR("AppleLanguages"), kCFPreferencesCurrentUser);
     CFPropertyListRef currentLocale = FCCopyPreference(CFSTR("AppleLocale"), kCFPreferencesCurrentUser);
 
@@ -42,12 +42,12 @@ BOOL FCBeginTemporaryJapanese(NSError **error) {
         return NO;
     }
 
-    NSArray *japanese = @[@"ja"];
-    BOOL languageOK = FCSetPreference(CFSTR("AppleLanguages"), (__bridge CFArrayRef)japanese, kCFPreferencesCurrentUser);
-    BOOL localeOK = FCSetPreference(CFSTR("AppleLocale"), CFSTR("ja_JP"), kCFPreferencesCurrentUser);
+    NSArray *english = @[@"en"];
+    BOOL languageOK = FCSetPreference(CFSTR("AppleLanguages"), (__bridge CFArrayRef)english, kCFPreferencesCurrentUser);
+    BOOL localeOK = FCSetPreference(CFSTR("AppleLocale"), CFSTR("en_US"), kCFPreferencesCurrentUser);
     if (!languageOK || !localeOK) {
         FCRestoreSavedLanguage(NULL);
-        if (error) *error = FCError(3, @"系统拒绝切换至日语");
+        if (error) *error = FCError(3, @"系统拒绝切换至英语");
         return NO;
     }
     return YES;

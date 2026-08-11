@@ -5,7 +5,7 @@
 ## 工作流程
 
 1. 保存当前 `AppleLanguages` 与 `AppleLocale`。
-2. 临时切换到日语 `ja / ja_JP`。
+2. 临时切换到英语 `en / en_US`。
 3. 执行第一次 userspace reboot。
 4. LaunchDaemon 自动恢复用户原始语言设置。
 5. 执行第二次 userspace reboot，并清除恢复状态。
