@@ -271,6 +271,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *saveDetails = nil;
     NSString *saveNote = @"";
     NSString *mountScheme = nil;
+    NSString *mountSaveMarker = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/Preferences/com.moxuan1121.fontchange.mount-s.done")];
     NSError *directoryError = nil;
     if (!sfuiOnly) {
         if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
@@ -320,6 +322,10 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     if (prefersMnt && mntTarget) target = mntTarget;
     if (sfuiOnly && !target && bindfsTarget) target = bindfsTarget;
     if (sfuiOnly && !target && mntTarget) target = mntTarget;
+    if (sfuiOnly && !target) {
+        failure = @"单独替换 SFUISoft 时未找到现有 bindfs 或 mnt 字体目录；为避免还原其他字体，已停止且未执行 --copy。";
+        goto fail;
+    }
     if (!target) {
         NSString *mountDetails = nil;
         NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
@@ -345,15 +351,24 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         goto fail;
     }
 
-    if (usesBindfs) {
+    BOOL mountSaveDone = [NSFileManager.defaultManager fileExistsAtPath:mountSaveMarker];
+    if (usesBindfs && !mountSaveDone) {
         NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
         NSString *saveCommand = [NSString stringWithFormat:@"\"%@\" -s /System/Library/Fonts", mountBindfs];
         saveStatus = runToolCapturingOutput(shell, @[@"-c", saveCommand], &saveDetails);
-        if (saveStatus != 0) {
+        if (saveStatus == 0) {
+            [@"registered" writeToFile:mountSaveMarker
+                             atomically:YES
+                               encoding:NSUTF8StringEncoding
+                                  error:nil];
+            saveNote = @"；已完成首次 mount_bindfs -s 登记";
+        } else {
             saveNote = [NSString stringWithFormat:
                 @"；警告：mount_bindfs -s 返回 %d（%@），不影响本次字体覆盖", saveStatus,
                 saveDetails.length ? saveDetails : @"没有错误详情"];
         }
+    } else if (usesBindfs) {
+        saveNote = @"；已存在 mount_bindfs -s 登记，本次跳过";
     }
 
     if (!sfuiOnly) {
@@ -364,9 +379,15 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     }
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
-    mountScheme = [target containsString:@"/bindfs/"]
-        ? (usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"bindfs（复用现有字体目录）")
-        : @"mnt（未执行任何挂载指令）";
+    if (sfuiOnly && [target containsString:@"/bindfs/"]) {
+        mountScheme = @"bindfs（复用现有目录，未执行 --copy 或 -s）";
+    } else if ([target containsString:@"/bindfs/"]) {
+        if (mountSaveDone) mountScheme = @"bindfs（已执行 --copy，-s 已登记）";
+        else if (saveStatus == 0) mountScheme = @"bindfs（已执行 --copy 和首次 -s）";
+        else mountScheme = @"bindfs（已执行 --copy，首次 -s 失败）";
+    } else {
+        mountScheme = @"mnt（未执行任何挂载指令）";
+    }
     writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；检测 zqbb=%@；挂载方案=%@%@%@", target,
         prefersMnt ? @"是（优先 mnt）" : @"否（优先 bindfs）",
         mountScheme,
@@ -454,12 +475,35 @@ static int restoreLanguageAndFinish(NSString *statePath, unsigned int delay, BOO
     _exit(killStatus);
 }
 
+static int preflight(BOOL springboardOnly) {
+    pid_t child = fork();
+    if (child < 0) return 78;
+    if (child == 0) _exit(0);
+    int status = 0;
+    if (waitpid(child, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return 79;
+
+    NSFileManager *manager = NSFileManager.defaultManager;
+    if (!springboardOnly) {
+        NSString *launchctl = [NSString stringWithUTF8String:jbroot("/bin/launchctl")];
+        return [manager isExecutableFileAtPath:launchctl] ? 0 : 80;
+    }
+    for (NSString *relative in @[@"/usr/bin/sbreload", @"/usr/bin/killall", @"/bin/killall"]) {
+        NSString *path = [NSString stringWithUTF8String:jbroot(relative.UTF8String)];
+        if ([manager isExecutableFileAtPath:path]) return 0;
+    }
+    return 81;
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (geteuid() != 0) return 77;
         NSString *mode = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"";
         if ([mode isEqualToString:@"--install"] && argc == 4) {
             return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]]);
+        }
+        if ([mode isEqualToString:@"--preflight"] && argc == 3) {
+            NSString *finishMode = [NSString stringWithUTF8String:argv[2]];
+            return preflight([finishMode isEqualToString:@"springboard"]);
         }
         if ([mode isEqualToString:@"--import"] && argc == 4) {
             NSString *source = [NSString stringWithUTF8String:argv[2]];

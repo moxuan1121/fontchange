@@ -254,8 +254,33 @@ extern char **environ;
             NSString *restoreMode = sfuiOnly
                 ? @"--restore-language-and-sbreload"
                 : @"--restore-language-and-reboot";
+            int preflightStatus = [self runHelperArguments:@[
+                @"--preflight", sfuiOnly ? @"springboard" : @"userspace"
+            ] wait:YES];
+            if (preflightStatus != 0) {
+                [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
+                self.runButton.enabled = YES;
+                self.runButton.backgroundColor = UIColor.systemRedColor;
+                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
+                self.statusLabel.text = [NSString stringWithFormat:
+                    @"后台语言恢复任务自检失败（%d），已停止切换。", preflightStatus];
+                return;
+            }
             if ([self invokeNativeLanguage:language fallback:fallback]) {
-                [self runHelperArguments:@[restoreMode, statePath, @"8"] wait:NO];
+                int spawnStatus = [self runHelperArguments:@[restoreMode, statePath, @"8"] wait:NO];
+                if (spawnStatus != 0) {
+                    [self invokeNativeLanguage:fallback fallback:fallback];
+                    [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
+                    self.runButton.enabled = YES;
+                    self.runButton.backgroundColor = UIColor.systemRedColor;
+                    [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
+                    self.statusLabel.text = [NSString stringWithFormat:
+                        @"后台语言恢复任务启动失败（%d），已尝试立即恢复原语言。", spawnStatus];
+                    return;
+                }
+                self.statusLabel.text = sfuiOnly
+                    ? @"正在清理字体缓存，即将重启 SpringBoard。"
+                    : @"正在清理字体缓存，即将重启用户空间。";
                 // Give the language-change UI enough time to become visible before locking.
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                     dispatch_get_main_queue(), ^{
