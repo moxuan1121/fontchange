@@ -1,6 +1,6 @@
 Package: com.moxuan1121.fontchange
 Name: Font Package Installer
-Version: 2.0.0-alpha26
+Version: 2.0.0-alpha27
 Architecture: iphoneos-arm64e
 Description: Imports ZIP font packages, refreshes the bindfs or mnt font copy, applies fonts, switches language natively, and reboots userspace.
 Maintainer: moxuan1121

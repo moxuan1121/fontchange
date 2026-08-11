@@ -475,23 +475,14 @@ static int restoreLanguageAndFinish(NSString *statePath, unsigned int delay, BOO
     _exit(killStatus);
 }
 
-static int preflight(BOOL springboardOnly) {
+static int preflight(void) {
     pid_t child = fork();
     if (child < 0) return 78;
     if (child == 0) _exit(0);
     int status = 0;
     if (waitpid(child, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0) return 79;
 
-    NSFileManager *manager = NSFileManager.defaultManager;
-    if (!springboardOnly) {
-        NSString *launchctl = [NSString stringWithUTF8String:jbroot("/bin/launchctl")];
-        return [manager isExecutableFileAtPath:launchctl] ? 0 : 80;
-    }
-    for (NSString *relative in @[@"/usr/bin/sbreload", @"/usr/bin/killall", @"/bin/killall"]) {
-        NSString *path = [NSString stringWithUTF8String:jbroot(relative.UTF8String)];
-        if ([manager isExecutableFileAtPath:path]) return 0;
-    }
-    return 81;
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -502,8 +493,7 @@ int main(int argc, char *argv[]) {
             return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]]);
         }
         if ([mode isEqualToString:@"--preflight"] && argc == 3) {
-            NSString *finishMode = [NSString stringWithUTF8String:argv[2]];
-            return preflight([finishMode isEqualToString:@"springboard"]);
+            return preflight();
         }
         if ([mode isEqualToString:@"--import"] && argc == 4) {
             NSString *source = [NSString stringWithUTF8String:argv[2]];
