@@ -1,0 +1,42 @@
+name: Build RootHide deb
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      THEOS_PACKAGE_SCHEME: roothide
+      CI: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install RootHide Theos
+        shell: bash
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/roothide/theos/master/bin/install-theos -o /tmp/install-theos
+          chmod +x /tmp/install-theos
+          /tmp/install-theos
+
+      - name: Build package
+        shell: bash
+        run: make clean package FINALPACKAGE=1
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: fontchange-roothide-deb
+          path: packages/*.deb
+          if-no-files-found: error
+
