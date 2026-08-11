@@ -94,7 +94,7 @@ extern char **environ;
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-        initForOpeningContentTypes:@[UTTypeZIP] asCopy:YES];
+        initForOpeningContentTypes:@[UTTypeZIP, UTTypeData] asCopy:YES];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
@@ -104,11 +104,27 @@ extern char **environ;
     (void)controller;
     NSURL *source = urls.firstObject;
     if (!source) return;
+    [self importPickedURL:source];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url {
+    (void)controller;
+    if (url) [self importPickedURL:url];
+}
+
+- (void)importPickedURL:(NSURL *)source {
+    if (![source.pathExtension.lowercaseString isEqualToString:@"zip"]) {
+        self.statusLabel.text = @"请选择扩展名为 .zip 的字体压缩包。";
+        return;
+    }
     NSString *name = self.pickingSlot == 1 ? @"primary.zip" : @"optional100.zip";
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
     NSError *error = nil;
-    if (![NSFileManager.defaultManager copyItemAtURL:source toURL:[NSURL fileURLWithPath:destination] error:&error]) {
+    BOOL scoped = [source startAccessingSecurityScopedResource];
+    BOOL copied = [NSFileManager.defaultManager copyItemAtURL:source toURL:[NSURL fileURLWithPath:destination] error:&error];
+    if (scoped) [source stopAccessingSecurityScopedResource];
+    if (!copied) {
         self.statusLabel.text = [NSString stringWithFormat:@"导入失败：%@", error.localizedDescription];
         return;
     }
