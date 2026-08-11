@@ -30,7 +30,7 @@ extern char **environ;
     titleLabel.font = [UIFont systemFontOfSize:32 weight:UIFontWeightBold];
     UILabel *featureLabel = [self label:@"通过原生切换语言环境，深度刷新系统字体缓存。" size:15 color:UIColor.secondaryLabelColor];
     UILabel *formatLabel = [self label:@"压缩包仅支持 ZIP 格式，暂不支持 7z、RAR。" size:13 color:UIColor.tertiaryLabelColor];
-    UIButton *primaryButton = [self button:@"选择主要字体包（必选）" action:@selector(selectPrimary)];
+    UIButton *primaryButton = [self button:@"主要字体包（全局覆盖，可选）" action:@selector(selectPrimary)];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
     UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
     self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
@@ -233,7 +233,10 @@ extern char **environ;
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
             if ([self invokeNativeLanguage:language fallback:fallback]) {
                 [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
-                [self turnScreenOff];
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                    dispatch_get_main_queue(), ^{
+                        [self turnScreenOff];
+                    });
             } else {
                 [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
             }

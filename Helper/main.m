@@ -391,12 +391,23 @@ static BOOL commitLanguages(NSArray<NSString *> *languages) {
     return YES;
 }
 
+static void lockDeviceNow(void) {
+    void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices",
+        RTLD_LAZY | RTLD_LOCAL);
+    if (!handle) return;
+    void (*lockDevice)(void) = dlsym(handle, "SBSLockDevice");
+    if (lockDevice) lockDevice();
+}
+
 static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     pid_t background = fork();
     if (background < 0) return 72;
     if (background > 0) return 0;
     setsid();
-    sleep(delay);
+    unsigned int lockDelay = MIN(2, delay);
+    sleep(lockDelay);
+    lockDeviceNow();
+    if (delay > lockDelay) sleep(delay - lockDelay);
 
     NSDictionary *state = [NSDictionary dictionaryWithContentsOfFile:statePath];
     NSArray<NSString *> *languages = [state[@"Languages"] isKindOfClass:NSArray.class] ? state[@"Languages"] : nil;
