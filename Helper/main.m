@@ -1,8 +1,6 @@
 #import <Foundation/Foundation.h>
-#import "../Shared/LanguagePreferences.h"
 
 #import <roothide.h>
-#import <grp.h>
 #import <spawn.h>
 #import <sys/wait.h>
 #import <unistd.h>
@@ -21,6 +19,43 @@ static int rebootUserspace(void) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 71;
 }
 
+static BOOL clearDirectoryContents(NSString *path, NSError **error) {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    BOOL isDirectory = NO;
+    if (![manager fileExistsAtPath:path isDirectory:&isDirectory]) return YES;
+
+    if (!isDirectory) {
+        return [manager removeItemAtPath:path error:error];
+    }
+
+    NSArray<NSString *> *children = [manager contentsOfDirectoryAtPath:path error:error];
+    if (!children) return NO;
+
+    for (NSString *child in children) {
+        NSString *childPath = [path stringByAppendingPathComponent:child];
+        if (![manager removeItemAtPath:childPath error:error]) return NO;
+    }
+    return YES;
+}
+
+static BOOL clearFontRelatedCaches(NSError **error) {
+    NSArray<NSString *> *paths = @[
+        @"/var/mobile/Library/Caches/com.apple.keyboards",
+        @"/var/mobile/Library/Caches/TelephonyUI-7",
+        @"/var/mobile/Library/Caches/TelephonyUI-8",
+        @"/var/mobile/Library/Caches/com.apple.UIStatusBar",
+        @"/var/mobile/Library/SMS/com.apple.messages.geometrycache_v3.plist",
+    ];
+
+    for (NSString *path in paths) {
+        if (!clearDirectoryContents(path, error)) {
+            NSLog(@"Failed to clear cache at %@: %@", path, error ? *error : nil);
+            return NO;
+        }
+    }
+    return YES;
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (geteuid() != 0) {
@@ -29,41 +64,14 @@ int main(int argc, char *argv[]) {
         }
 
         NSString *argument = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"";
-        if ([argument isEqualToString:@"--reboot"]) {
+        if ([argument isEqualToString:@"--clear-cache"]) {
+            NSError *error = nil;
+            if (!clearFontRelatedCaches(&error)) return 1;
             sync();
             return rebootUserspace();
         }
 
-        if ([argument isEqualToString:@"--resume"]) {
-            if (![NSFileManager.defaultManager fileExistsAtPath:FCStatePath()]) return 0;
-            sleep(8);
-
-            pid_t restorePID = fork();
-            if (restorePID < 0) return 72;
-            if (restorePID == 0) {
-                setgroups(0, NULL);
-                if (setgid(501) != 0 || setuid(501) != 0) _exit(73);
-
-                NSError *error = nil;
-                if (!FCRestoreSavedLanguage(&error)) {
-                    NSLog(@"Language restore failed: %@", error);
-                    _exit(1);
-                }
-                _exit(0);
-            }
-
-            int restoreStatus = 0;
-            if (waitpid(restorePID, &restoreStatus, 0) < 0 ||
-                !WIFEXITED(restoreStatus) || WEXITSTATUS(restoreStatus) != 0) {
-                return 1;
-            }
-
-            sync();
-            sleep(2);
-            return rebootUserspace();
-        }
-
-        NSLog(@"Usage: fontchange-helper --reboot|--resume");
+        NSLog(@"Usage: fontchange-helper --clear-cache");
         return 64;
     }
 }

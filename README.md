@@ -1,38 +1,31 @@
-# Font Language Refresh for RootHide
+# Font Cache Refresh Test for RootHide
 
-一款面向 Dopamine RootHide 的 iOS 15+ 桌面应用，用两阶段语言切换刷新系统字体缓存。
+面向 Dopamine RootHide 与 iOS 15+ 的字体缓存清理测试版。
 
 ## 工作流程
 
-1. 保存当前 `AppleLanguages` 与 `AppleLocale`。
-2. 临时切换到日语 `ja / ja_JP`。
-3. 执行第一次 userspace reboot。
-4. LaunchDaemon 自动恢复用户原始语言设置。
-5. 执行第二次 userspace reboot，并清除恢复状态。
+1. 清理下列目录中的现有缓存内容，但保留目录本身：
+   - `/var/mobile/Library/Caches/com.apple.keyboards/`
+   - `/var/mobile/Library/Caches/TelephonyUI-7/`
+   - `/var/mobile/Library/Caches/TelephonyUI-8/`
+   - `/var/mobile/Library/Caches/com.apple.UIStatusBar/`
+2. 删除 `/var/mobile/Library/SMS/com.apple.messages.geometrycache_v3.plist`（如果存在）。
+3. 执行一次 `launchctl reboot userspace`。
 
-恢复失败时状态文件会保留，App 会显示“恢复原语言并重启”按钮供手动重试。
+本测试版不会修改系统语言，不会复制、替换或删除字体文件，也不会删除整个缓存根目录。上述缓存由系统在重启后按需重建。
 
 ## 兼容性
 
 - iOS 15.0+
 - Dopamine RootHide
-- RootHide `iphoneos-arm64e` Debian 包
-- App/helper 使用 arm64 Mach-O，避免 iOS 15 的 arm64e ABI 不兼容
-- 已针对 iPhone 13 Pro Max、iOS 15.6 的目标环境设计
+- Debian 包架构：`iphoneos-arm64e`
+- App/helper Mach-O：`arm64`
 
 ## 构建
-
-项目使用官方 RootHide Theos：
 
 ```sh
 export THEOS=~/theos
 make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
 ```
 
-GitHub Actions 也会自动构建，并上传 `.deb` artifact。
-
-## 安装与风险
-
-通过 Sileo 安装构建生成的 RootHide `.deb`。开始刷新前，请保存所有 App 中未保存的数据；完整流程会进行两次用户空间重启。
-
-这是首个真机测试版本。建议在确认语言恢复正常后再用于日常操作。
+GitHub Actions 会自动构建并上传 `.deb` artifact。
