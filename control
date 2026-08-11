@@ -1,6 +1,6 @@
 Package: com.moxuan1121.fontchange
 Name: Font Language Refresh
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm64e
 Description: One-tap two-stage language refresh for rebuilding iOS font caches on Dopamine RootHide.
 Maintainer: moxuan1121
