@@ -215,6 +215,22 @@ static BOOL copyFile(NSString *source, NSString *destination, NSString **failure
     return status == 0;
 }
 
+static BOOL hasZqbbPreference(void) {
+    NSMutableArray<NSString *> *roots = [NSMutableArray arrayWithObject:@"/var/mobile"];
+    NSString *jailbreakMobile = [NSString stringWithUTF8String:jbroot("/var/mobile")];
+    if (jailbreakMobile.length && ![roots containsObject:jailbreakMobile]) {
+        [roots addObject:jailbreakMobile];
+    }
+    for (NSString *root in roots) {
+        NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:root];
+        for (NSString *relative in enumerator) {
+            NSString *name = relative.lastPathComponent.lowercaseString;
+            if ([name containsString:@"zqbb"] && [name hasSuffix:@".plist"]) return YES;
+        }
+    }
+    return NO;
+}
+
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
@@ -228,6 +244,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
     NSString *target = nil;
     BOOL usesBindfs = NO;
+    BOOL prefersMnt = NO;
+    NSString *mntTarget = nil;
+    NSString *bindfsTarget = nil;
     int saveStatus = 0;
     NSString *saveDetails = nil;
     NSString *saveNote = @"";
@@ -259,22 +278,29 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         if (!optionalSFUI) goto fail;
     }
 
-    target = validFontsTarget(@"/mnt/System/Library/Fonts");
+    prefersMnt = hasZqbbPreference();
+    mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
+    bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
+    if (prefersMnt && mntTarget) target = mntTarget;
     if (!target) {
         NSString *mountDetails = nil;
         NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
         NSString *copyCommand = [NSString stringWithFormat:@"\"%@\" --copy  /System/Library/Fonts", mountBindfs];
         int mountStatus = runToolCapturingOutput(shell, @[@"-c", copyCommand], &mountDetails);
-        for (NSUInteger attempt = 0; attempt < 10 && !target; attempt++) {
-            target = validFontsTarget(@"/bindfs/System/Library/Fonts");
-            if (!target) usleep(300000);
+        for (NSUInteger attempt = 0; attempt < 10 && !bindfsTarget; attempt++) {
+            bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
+            if (!bindfsTarget) usleep(300000);
         }
-        if (!target) {
+        if (bindfsTarget) {
+            target = bindfsTarget;
+            usesBindfs = YES;
+        } else if (mntTarget) {
+            target = mntTarget;
+        } else {
             failure = [NSString stringWithFormat:@"mount_bindfs --copy 后仍未生成有效字体目录（%d）：%@",
                 mountStatus, mountDetails.length ? mountDetails : @"命令没有返回错误详情"];
             goto fail;
         }
-        usesBindfs = YES;
     }
     if (!target) {
         failure = @"未找到有效的 mnt 字体目录，mount_bindfs 也未生成有效 bindfs 字体目录。";
@@ -298,7 +324,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     if (!copyFile([primaryRoot stringByAppendingPathComponent:@"PingFang.ttc"],
         [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
-    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；挂载方案=%@%@%@", target,
+    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；检测 zqbb=%@；挂载方案=%@%@%@", target,
+        prefersMnt ? @"是（优先 mnt）" : @"否（优先 bindfs）",
         usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"mnt（未执行任何挂载指令）",
         optionalSFUI ? @"；SFUISoft.ttc 使用可选 100% 字体包" : @"；全部字体使用主要字体包",
         saveNote]);

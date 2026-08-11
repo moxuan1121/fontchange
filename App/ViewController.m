@@ -161,18 +161,15 @@ extern char **environ;
     NSArray<NSString *> *originalLanguages = NSLocale.preferredLanguages;
     NSString *current = originalLanguages.firstObject ?: @"zh-Hans";
     NSString *temporary = [current hasPrefix:@"ja"] ? @"zh-Hans" : @"ja";
-    NSString *temporaryName = [temporary isEqualToString:@"ja"] ? @"日语" : @"简体中文";
-    NSString *message = [NSString stringWithFormat:
-        @"字体覆盖成功后将临时切换到%@，随后自动恢复当前默认语言，最后重启用户空间。请先保存其他 App 中未保存的内容。", temporaryName];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认一键更换字体"
-        message:message preferredStyle:UIAlertControllerStyleAlert];
-    __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"开始执行" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        [weakSelf runWithTemporaryLanguage:temporary originalLanguages:originalLanguages];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    alert.popoverPresentationController.sourceView = self.runButton;
-    [self presentViewController:alert animated:YES completion:nil];
+    [self runWithTemporaryLanguage:temporary originalLanguages:originalLanguages];
+}
+
+- (void)turnScreenOff {
+    void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices",
+        RTLD_LAZY | RTLD_LOCAL);
+    if (!handle) return;
+    void (*lockDevice)(void) = dlsym(handle, "SBSLockDevice");
+    if (lockDevice) lockDevice();
 }
 
 - (void)runWithTemporaryLanguage:(NSString *)language originalLanguages:(NSArray<NSString *> *)originalLanguages {
@@ -195,7 +192,7 @@ extern char **environ;
                 self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
                 return;
             }
-            self.statusLabel.text = @"字体覆盖完成，正在提交原生语言切换…";
+            self.statusLabel.text = @"字体覆盖完成，正在完成系统刷新…";
             NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
             NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
             if (![state writeToFile:statePath atomically:YES]) {
@@ -206,6 +203,7 @@ extern char **environ;
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
             if ([self invokeNativeLanguage:language fallback:fallback]) {
                 [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
+                [self turnScreenOff];
             } else {
                 [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
             }
