@@ -1,12 +1,15 @@
 #import "ViewController.h"
 
 #import <dlfcn.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 @interface ViewController ()
 @property(nonatomic, strong) UITextView *resultView;
 @property(nonatomic, strong) UIButton *scanButton;
 @property(nonatomic, strong) UIButton *shareButton;
+@property(nonatomic, strong) UIButton *japaneseButton;
+@property(nonatomic, strong) UIButton *chineseButton;
 @property(nonatomic, copy) NSString *reportPath;
 @end
 
@@ -52,7 +55,7 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
 
     UILabel *notice = [[UILabel alloc] init];
     notice.translatesAutoresizingMaskIntoConstraints = NO;
-    notice.text = @"只读取运行时类与方法，不修改语言、不清理数据、不重启进程。";
+    notice.text = @"扫描功能只读取接口。下方语言按钮会调用设置 App 使用的 PSLanguageSelector；不会清缓存或重启用户空间。";
     notice.font = [UIFont systemFontOfSize:15];
     notice.textColor = UIColor.secondaryLabelColor;
     notice.numberOfLines = 0;
@@ -70,14 +73,24 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
     self.shareButton.enabled = NO;
     self.shareButton.alpha = 0.5;
 
+    self.japaneseButton = [self buttonWithTitle:@"原生切换到日语" action:@selector(confirmJapanese)];
+    self.chineseButton = [self buttonWithTitle:@"原生切换到简体中文" action:@selector(confirmChinese)];
+
     UIStackView *buttons = [[UIStackView alloc] initWithArrangedSubviews:@[self.scanButton, self.shareButton]];
     buttons.translatesAutoresizingMaskIntoConstraints = NO;
     buttons.axis = UILayoutConstraintAxisHorizontal;
     buttons.spacing = 12;
     buttons.distribution = UIStackViewDistributionFillEqually;
 
+    UIStackView *languageButtons = [[UIStackView alloc] initWithArrangedSubviews:@[self.japaneseButton, self.chineseButton]];
+    languageButtons.translatesAutoresizingMaskIntoConstraints = NO;
+    languageButtons.axis = UILayoutConstraintAxisVertical;
+    languageButtons.spacing = 10;
+    languageButtons.distribution = UIStackViewDistributionFillEqually;
+
     [self.view addSubview:notice];
     [self.view addSubview:self.resultView];
+    [self.view addSubview:languageButtons];
     [self.view addSubview:buttons];
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
@@ -88,10 +101,14 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
         [buttons.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
         [buttons.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-12],
         [buttons.heightAnchor constraintEqualToConstant:50],
+        [languageButtons.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
+        [languageButtons.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
+        [languageButtons.bottomAnchor constraintEqualToAnchor:buttons.topAnchor constant:-10],
+        [languageButtons.heightAnchor constraintEqualToConstant:110],
         [self.resultView.topAnchor constraintEqualToAnchor:notice.bottomAnchor constant:12],
         [self.resultView.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:12],
         [self.resultView.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-12],
-        [self.resultView.bottomAnchor constraintEqualToAnchor:buttons.topAnchor constant:-12],
+        [self.resultView.bottomAnchor constraintEqualToAnchor:languageButtons.topAnchor constant:-12],
     ]];
 }
 
@@ -181,6 +198,56 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
         initWithActivityItems:@[url] applicationActivities:nil];
     controller.popoverPresentationController.sourceView = self.shareButton;
     [self presentViewController:controller animated:YES completion:nil];
+}
+
+- (void)confirmJapanese {
+    [self confirmLanguage:@"ja" fallback:@"zh-Hans" displayName:@"日语"];
+}
+
+- (void)confirmChinese {
+    [self confirmLanguage:@"zh-Hans" fallback:@"ja" displayName:@"简体中文"];
+}
+
+- (void)confirmLanguage:(NSString *)language fallback:(NSString *)fallback displayName:(NSString *)displayName {
+    NSString *message = [NSString stringWithFormat:
+        @"将调用系统 PSLanguageSelector 切换到%@。若接口有效，当前 App、SpringBoard 和分享界面等会被系统快速重建。请先保存其他 App 中未保存的内容。", displayName];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"测试系统原生语言切换"
+        message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"确认切换" style:UIAlertActionStyleDestructive
+        handler:^(__unused UIAlertAction *action) {
+            [weakSelf invokeSystemLanguage:language fallback:fallback];
+        }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)invokeSystemLanguage:(NSString *)language fallback:(NSString *)fallback {
+    self.japaneseButton.enabled = NO;
+    self.chineseButton.enabled = NO;
+    self.resultView.text = [NSString stringWithFormat:@"正在请求系统切换到 %@…", language];
+
+    void *handle = dlopen("/System/Library/PrivateFrameworks/Preferences.framework/Preferences",
+        RTLD_LAZY | RTLD_LOCAL);
+    Class selectorClass = NSClassFromString(@"PSLanguageSelector");
+    SEL setLanguage = NSSelectorFromString(@"setLanguage:fallback:");
+    if (!handle || !selectorClass || ![selectorClass instancesRespondToSelector:setLanguage]) {
+        const char *error = dlerror();
+        self.resultView.text = [NSString stringWithFormat:@"无法加载系统语言接口%s%s",
+            error ? "：" : "", error ?: ""];
+        self.japaneseButton.enabled = YES;
+        self.chineseButton.enabled = YES;
+        return;
+    }
+
+    id selector = [[selectorClass alloc] init];
+    ((void (*)(id, SEL, id, id))objc_msgSend)(selector, setLanguage, language, fallback);
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        self.japaneseButton.enabled = YES;
+        self.chineseButton.enabled = YES;
+        self.resultView.text = @"接口调用已返回，但系统没有开始切换。请把此现象告诉我。";
+    });
 }
 
 @end

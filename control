@@ -1,8 +1,8 @@
 Package: com.moxuan1121.fontchange
-Name: Localization Runtime Diagnostics
-Version: 1.3.0-diagnostic
+Name: Native Localization Switch Test
+Version: 1.4.0-native-test
 Architecture: iphoneos-arm64e
-Description: Read-only runtime interface diagnostics for IntlPreferences on iOS 15 Dopamine RootHide.
+Description: Tests the native PSLanguageSelector flow and includes runtime diagnostics for iOS 15 Dopamine RootHide.
 Maintainer: moxuan1121
 Author: moxuan1121
 Section: Utilities
