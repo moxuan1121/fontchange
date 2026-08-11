@@ -1,8 +1,8 @@
 Package: com.moxuan1121.fontchange
-Name: Font Language Refresh
-Version: 1.0.2
+Name: Localization Runtime Diagnostics
+Version: 1.3.0-diagnostic
 Architecture: iphoneos-arm64e
-Description: One-tap two-stage language refresh for rebuilding iOS font caches on Dopamine RootHide.
+Description: Read-only runtime interface diagnostics for IntlPreferences on iOS 15 Dopamine RootHide.
 Maintainer: moxuan1121
 Author: moxuan1121
 Section: Utilities

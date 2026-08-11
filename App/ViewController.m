@@ -1,133 +1,186 @@
 #import "ViewController.h"
-#import "../Shared/LanguagePreferences.h"
 
-#import <roothide.h>
-#import <spawn.h>
-#import <sys/wait.h>
-
-extern char **environ;
+#import <dlfcn.h>
+#import <objc/runtime.h>
 
 @interface ViewController ()
-@property(nonatomic, strong) UILabel *statusLabel;
-@property(nonatomic, strong) UIButton *actionButton;
+@property(nonatomic, strong) UITextView *resultView;
+@property(nonatomic, strong) UIButton *scanButton;
+@property(nonatomic, strong) UIButton *shareButton;
+@property(nonatomic, copy) NSString *reportPath;
 @end
 
 @implementation ViewController
 
+static BOOL FCContainsKeyword(NSString *value) {
+    if (value.length == 0) return NO;
+    NSString *lower = value.lowercaseString;
+    NSArray<NSString *> *keywords = @[@"language", @"localization", @"locale", @"intl",
+        @"linguistic", @"preferredlanguages", @"applelanguages", @"switch"];
+    for (NSString *keyword in keywords) {
+        if ([lower containsString:keyword]) return YES;
+    }
+    return NO;
+}
+
+static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll) {
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    for (unsigned int index = 0; index < count; index++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[index]));
+        if (includeAll || FCContainsKeyword(name)) {
+            [report appendFormat:@"    - %@    %s\n", name, method_getTypeEncoding(methods[index]) ?: ""];
+        }
+    }
+    free(methods);
+
+    Class meta = object_getClass(cls);
+    methods = class_copyMethodList(meta, &count);
+    for (unsigned int index = 0; index < count; index++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[index]));
+        if (includeAll || FCContainsKeyword(name)) {
+            [report appendFormat:@"    + %@    %s\n", name, method_getTypeEncoding(methods[index]) ?: ""];
+        }
+    }
+    free(methods);
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"字体缓存刷新";
+    self.title = @"语言接口诊断";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
-    UILabel *titleLabel = [[UILabel alloc] init];
-    titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    titleLabel.text = @"一键刷新字体环境";
-    titleLabel.font = [UIFont systemFontOfSize:28 weight:UIFontWeightBold];
-    titleLabel.textAlignment = NSTextAlignmentCenter;
+    UILabel *notice = [[UILabel alloc] init];
+    notice.translatesAutoresizingMaskIntoConstraints = NO;
+    notice.text = @"只读取运行时类与方法，不修改语言、不清理数据、不重启进程。";
+    notice.font = [UIFont systemFontOfSize:15];
+    notice.textColor = UIColor.secondaryLabelColor;
+    notice.numberOfLines = 0;
 
-    UILabel *detailLabel = [[UILabel alloc] init];
-    detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    detailLabel.text = @"应用会临时切换到日语并重启用户空间，随后自动恢复原语言并再次重启。整个过程会黑屏两次。";
-    detailLabel.font = [UIFont systemFontOfSize:16];
-    detailLabel.textColor = UIColor.secondaryLabelColor;
-    detailLabel.numberOfLines = 0;
-    detailLabel.textAlignment = NSTextAlignmentCenter;
+    self.resultView = [[UITextView alloc] init];
+    self.resultView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.resultView.editable = NO;
+    self.resultView.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
+    self.resultView.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    self.resultView.layer.cornerRadius = 12;
+    self.resultView.text = @"点击“开始扫描”。扫描通常需要数秒。";
 
-    self.statusLabel = [[UILabel alloc] init];
-    self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.statusLabel.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
-    self.statusLabel.numberOfLines = 0;
-    self.statusLabel.textAlignment = NSTextAlignmentCenter;
+    self.scanButton = [self buttonWithTitle:@"开始扫描" action:@selector(startScan)];
+    self.shareButton = [self buttonWithTitle:@"分享结果文件" action:@selector(shareReport)];
+    self.shareButton.enabled = NO;
+    self.shareButton.alpha = 0.5;
 
-    self.actionButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.actionButton.translatesAutoresizingMaskIntoConstraints = NO;
-    self.actionButton.titleLabel.font = [UIFont systemFontOfSize:18 weight:UIFontWeightSemibold];
-    self.actionButton.backgroundColor = UIColor.systemBlueColor;
-    [self.actionButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    self.actionButton.layer.cornerRadius = 14;
-    [self.actionButton addTarget:self action:@selector(confirmRefresh) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *buttons = [[UIStackView alloc] initWithArrangedSubviews:@[self.scanButton, self.shareButton]];
+    buttons.translatesAutoresizingMaskIntoConstraints = NO;
+    buttons.axis = UILayoutConstraintAxisHorizontal;
+    buttons.spacing = 12;
+    buttons.distribution = UIStackViewDistributionFillEqually;
 
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, detailLabel, self.statusLabel, self.actionButton]];
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 22;
-    [self.view addSubview:stack];
-
+    [self.view addSubview:notice];
+    [self.view addSubview:self.resultView];
+    [self.view addSubview:buttons];
+    UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
-        [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
-        [stack.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
-        [self.actionButton.heightAnchor constraintEqualToConstant:54],
+        [notice.topAnchor constraintEqualToAnchor:guide.topAnchor constant:14],
+        [notice.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
+        [notice.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
+        [buttons.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
+        [buttons.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
+        [buttons.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-12],
+        [buttons.heightAnchor constraintEqualToConstant:50],
+        [self.resultView.topAnchor constraintEqualToAnchor:notice.bottomAnchor constant:12],
+        [self.resultView.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:12],
+        [self.resultView.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-12],
+        [self.resultView.bottomAnchor constraintEqualToAnchor:buttons.topAnchor constant:-12],
     ]];
-
-    [self updateState];
 }
 
-- (void)viewWillAppear:(BOOL)animated {
-    [super viewWillAppear:animated];
-    [self updateState];
+- (UIButton *)buttonWithTitle:(NSString *)title action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    button.backgroundColor = UIColor.systemBlueColor;
+    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [button setTitle:title forState:UIControlStateNormal];
+    button.layer.cornerRadius = 12;
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
 }
 
-- (void)updateState {
-    BOOL pending = [NSFileManager.defaultManager fileExistsAtPath:FCStatePath()];
-    if (pending) {
-        self.statusLabel.text = @"检测到待恢复状态。可手动继续恢复原语言。";
-        [self.actionButton setTitle:@"恢复原语言并重启" forState:UIControlStateNormal];
-    } else {
-        self.statusLabel.text = @"当前无待处理任务";
-        [self.actionButton setTitle:@"开始刷新" forState:UIControlStateNormal];
-    }
-}
-
-- (void)confirmRefresh {
-    BOOL pending = [NSFileManager.defaultManager fileExistsAtPath:FCStatePath()];
-    NSString *message = pending
-        ? @"将立即恢复原语言并重启用户空间。"
-        : @"将切换到日语并执行第一次用户空间重启。请保存所有 App 中未保存的内容。";
-
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认操作" message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"继续" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        [weakSelf runRefreshWithPendingState:pending];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)runRefreshWithPendingState:(BOOL)pending {
-    self.actionButton.enabled = NO;
-    self.statusLabel.text = pending ? @"正在恢复原语言…" : @"正在保存语言并切换至日语…";
-
+- (void)startScan {
+    self.scanButton.enabled = NO;
+    self.resultView.text = @"正在加载 IntlPreferences.framework 并枚举接口…";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSError *error = nil;
-        BOOL success = pending ? FCRestoreSavedLanguage(&error) : FCBeginTemporaryJapanese(&error);
-        if (success) {
-            success = [self spawnHelper:pending ? "--reboot" : "--reboot" error:&error];
-        }
-
+        NSString *report = [self buildReport];
+        NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+        NSString *path = [documents stringByAppendingPathComponent:@"localization_runtime_interfaces.txt"];
+        NSError *writeError = nil;
+        BOOL written = [report writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&writeError];
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!success) {
-                self.actionButton.enabled = YES;
-                self.statusLabel.text = [NSString stringWithFormat:@"失败：%@", error.localizedDescription ?: @"未知错误"];
-                [self updateState];
+            self.scanButton.enabled = YES;
+            self.resultView.text = report;
+            if (written) {
+                self.reportPath = path;
+                self.shareButton.enabled = YES;
+                self.shareButton.alpha = 1.0;
+            } else {
+                self.resultView.text = [report stringByAppendingFormat:@"\n\n保存失败：%@", writeError.localizedDescription];
             }
         });
     });
 }
 
-- (BOOL)spawnHelper:(const char *)argument error:(NSError **)error {
-    const char *helper = jbroot("/usr/libexec/fontchange-helper");
-    char *const argv[] = {(char *)helper, (char *)argument, NULL};
-    pid_t pid = 0;
-    int result = posix_spawn(&pid, helper, NULL, NULL, argv, environ);
-    if (result != 0) {
-        if (error) {
-            *error = [NSError errorWithDomain:@"FontChange" code:result userInfo:@{NSLocalizedDescriptionKey: @"无法启动 root helper"}];
-        }
-        return NO;
+- (NSString *)buildReport {
+    NSMutableString *report = [NSMutableString string];
+    [report appendString:@"FontChange localization runtime diagnostics\n"];
+    [report appendFormat:@"Generated: %@\nSystem: %@ %@\n\n", NSDate.date,
+        UIDevice.currentDevice.systemName, UIDevice.currentDevice.systemVersion];
+
+    NSArray<NSString *> *paths = @[
+        @"/System/Library/PrivateFrameworks/IntlPreferences.framework/IntlPreferences",
+        @"/System/Library/PrivateFrameworks/Preferences.framework/Preferences"
+    ];
+    for (NSString *path in paths) {
+        dlerror();
+        void *handle = dlopen(path.UTF8String, RTLD_LAZY | RTLD_LOCAL);
+        const char *error = dlerror();
+        [report appendFormat:@"dlopen %@: %@", path, handle ? @"SUCCESS" : @"FAILED"];
+        if (error) [report appendFormat:@" (%s)", error];
+        [report appendString:@"\n"];
     }
-    return YES;
+    [report appendString:@"\n"];
+
+    int classCount = objc_getClassList(NULL, 0);
+    Class *classes = calloc((size_t)classCount, sizeof(Class));
+    classCount = objc_getClassList(classes, classCount);
+    NSUInteger classMatches = 0;
+    NSUInteger selectorMatches = 0;
+    for (int index = 0; index < classCount; index++) {
+        Class cls = classes[index];
+        NSString *className = NSStringFromClass(cls);
+        const char *imageCString = class_getImageName(cls);
+        NSString *image = imageCString ? [NSString stringWithUTF8String:imageCString] : @"";
+        BOOL classMatch = FCContainsKeyword(className) || FCContainsKeyword(image);
+        NSMutableString *methods = [NSMutableString string];
+        FCAppendMethods(methods, cls, classMatch);
+        if (classMatch || methods.length > 0) {
+            [report appendFormat:@"CLASS %@\nIMAGE %@\n%@\n", className,
+                image.length ? image : @"(unknown)", methods];
+            if (classMatch) classMatches++; else selectorMatches++;
+        }
+    }
+    free(classes);
+    [report appendFormat:@"SUMMARY classes=%d classMatches=%lu selectorOnlyMatches=%lu\n",
+        classCount, (unsigned long)classMatches, (unsigned long)selectorMatches];
+    return report;
+}
+
+- (void)shareReport {
+    if (self.reportPath.length == 0) return;
+    NSURL *url = [NSURL fileURLWithPath:self.reportPath];
+    UIActivityViewController *controller = [[UIActivityViewController alloc]
+        initWithActivityItems:@[url] applicationActivities:nil];
+    controller.popoverPresentationController.sourceView = self.shareButton;
+    [self presentViewController:controller animated:YES completion:nil];
 }
 
 @end
-
