@@ -121,10 +121,27 @@ extern char **environ;
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
     BOOL scoped = [source startAccessingSecurityScopedResource];
-    int importStatus = [self runHelperArguments:@[@"--import", source.path, destination] wait:YES];
+    __block BOOL copied = NO;
+    __block NSError *copyError = nil;
+    NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
+    [coordinator coordinateReadingItemAtURL:source
+                                    options:NSFileCoordinatorReadingWithoutChanges
+                                      error:&copyError
+                                 byAccessor:^(NSURL *coordinatedURL) {
+        copied = [NSFileManager.defaultManager copyItemAtURL:coordinatedURL
+                                                       toURL:[NSURL fileURLWithPath:destination]
+                                                      error:&copyError];
+    }];
+    int importStatus = 0;
+    if (!copied && !scoped) {
+        importStatus = [self runHelperArguments:@[@"--import", source.path, destination] wait:YES];
+        copied = importStatus == 0;
+    }
     if (scoped) [source stopAccessingSecurityScopedResource];
-    if (importStatus != 0) {
-        self.statusLabel.text = [NSString stringWithFormat:@"导入失败：root helper 无法读取所选文件（%d）。", importStatus];
+    if (!copied) {
+        NSString *detail = copyError.localizedDescription ?: @"文件提供器拒绝读取";
+        self.statusLabel.text = [NSString stringWithFormat:
+            @"导入失败：%@（安全作用域=%@，helper=%d）。", detail, scoped ? @"已获得" : @"未获得", importStatus];
         return;
     }
     if (self.pickingSlot == 1) {
