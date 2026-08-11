@@ -150,7 +150,7 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
     [report appendString:@"\n"];
 
     int classCount = objc_getClassList(NULL, 0);
-    Class *classes = calloc((size_t)classCount, sizeof(Class));
+    __unsafe_unretained Class *classes = (__unsafe_unretained Class *)calloc((size_t)classCount, sizeof(Class));
     classCount = objc_getClassList(classes, classCount);
     NSUInteger classMatches = 0;
     NSUInteger selectorMatches = 0;
