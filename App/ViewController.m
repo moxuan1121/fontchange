@@ -198,16 +198,14 @@ extern char **environ;
 
 - (int)runHelperArguments:(NSArray<NSString *> *)arguments wait:(BOOL)wait {
     const char *helper = jbroot("/usr/libexec/fontchange-helper");
-    NSMutableArray<NSData *> *storage = [NSMutableArray array];
     char **argv = calloc(arguments.count + 2, sizeof(char *));
-    argv[0] = (char *)helper;
+    argv[0] = strdup(helper);
     for (NSUInteger index = 0; index < arguments.count; index++) {
-        NSData *data = [arguments[index] dataUsingEncoding:NSUTF8StringEncoding];
-        [storage addObject:data];
-        argv[index + 1] = (char *)data.bytes;
+        argv[index + 1] = strdup(arguments[index].UTF8String);
     }
     pid_t pid = 0;
     int result = posix_spawn(&pid, helper, NULL, NULL, argv, environ);
+    for (NSUInteger index = 0; index < arguments.count + 1; index++) free(argv[index]);
     free(argv);
     if (result != 0 || !wait) return result;
     int processStatus = 0;

@@ -18,18 +18,14 @@ static void writeReport(NSString *message) {
 }
 
 static int runTool(NSString *path, NSArray<NSString *> *arguments) {
-    NSMutableArray<NSData *> *storage = [NSMutableArray array];
     char **argv = calloc(arguments.count + 2, sizeof(char *));
-    NSData *toolData = [path dataUsingEncoding:NSUTF8StringEncoding];
-    [storage addObject:toolData];
-    argv[0] = (char *)toolData.bytes;
+    argv[0] = strdup(path.UTF8String);
     for (NSUInteger index = 0; index < arguments.count; index++) {
-        NSData *data = [arguments[index] dataUsingEncoding:NSUTF8StringEncoding];
-        [storage addObject:data];
-        argv[index + 1] = (char *)data.bytes;
+        argv[index + 1] = strdup(arguments[index].UTF8String);
     }
     pid_t pid = 0;
     int result = posix_spawn(&pid, path.UTF8String, NULL, NULL, argv, environ);
+    for (NSUInteger index = 0; index < arguments.count + 1; index++) free(argv[index]);
     free(argv);
     if (result != 0) return result;
     int status = 0;
@@ -52,10 +48,7 @@ static BOOL validateArchive(NSString *zipPath, NSString **failure) {
         if (failure) *failure = @"无法创建 ZIP 检查管道。";
         return NO;
     }
-    NSData *toolData = [unzip dataUsingEncoding:NSUTF8StringEncoding];
-    NSData *modeData = [@"-Z1" dataUsingEncoding:NSUTF8StringEncoding];
-    NSData *pathData = [zipPath dataUsingEncoding:NSUTF8StringEncoding];
-    char *argv[] = {(char *)toolData.bytes, (char *)modeData.bytes, (char *)pathData.bytes, NULL};
+    char *argv[] = {strdup(unzip.UTF8String), strdup("-Z1"), strdup(zipPath.UTF8String), NULL};
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDOUT_FILENO);
@@ -63,6 +56,9 @@ static BOOL validateArchive(NSString *zipPath, NSString **failure) {
     posix_spawn_file_actions_addclose(&actions, descriptors[1]);
     pid_t pid = 0;
     int spawnStatus = posix_spawn(&pid, unzip.UTF8String, &actions, NULL, argv, environ);
+    free(argv[0]);
+    free(argv[1]);
+    free(argv[2]);
     posix_spawn_file_actions_destroy(&actions);
     close(descriptors[1]);
     if (spawnStatus != 0) {
