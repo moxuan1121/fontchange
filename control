@@ -1,6 +1,6 @@
 Package: com.moxuan1121.fontchange
 Name: Font Cache Refresh Test
-Version: 1.1.0-test2
+Version: 1.1.0-test3
 Architecture: iphoneos-arm64e
 Description: Test build that clears selected font-related UI caches and performs one userspace reboot on Dopamine RootHide.
 Maintainer: moxuan1121

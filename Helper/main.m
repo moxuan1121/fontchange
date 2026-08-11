@@ -39,16 +39,17 @@ static BOOL clearDirectoryContents(NSString *path, NSError **error) {
 }
 
 static BOOL clearFontRelatedCaches(NSError **error) {
-    NSArray<NSString *> *paths = @[
-        @"/var/mobile/Library/Caches/com.apple.keyboards",
-        @"/var/mobile/Library/Caches/TelephonyUI-7",
-        @"/var/mobile/Library/Caches/TelephonyUI-8",
-        @"/var/mobile/Library/Caches/com.apple.UIStatusBar",
-        @"/var/mobile/Library/Caches/com.apple.sharingd",
-        @"/var/mobile/Library/SMS/com.apple.messages.geometrycache_v3.plist",
+    NSArray<NSString *> *rootFSPaths = @[
+        @"/bindfs/var/mobile/Library/Caches/com.apple.keyboards",
+        @"/bindfs/var/mobile/Library/Caches/TelephonyUI-7",
+        @"/bindfs/var/mobile/Library/Caches/TelephonyUI-8",
+        @"/bindfs/var/mobile/Library/Caches/com.apple.UIStatusBar",
+        @"/bindfs/var/mobile/Library/Caches/com.apple.sharingd",
+        @"/bindfs/var/mobile/Library/SMS/com.apple.messages.geometrycache_v3.plist",
     ];
 
-    for (NSString *path in paths) {
+    for (NSString *rootFSPath in rootFSPaths) {
+        NSString *path = jbroot(rootFSPath);
         if (!clearDirectoryContents(path, error)) {
             NSLog(@"Failed to clear cache at %@: %@", path, error ? *error : nil);
             return NO;
