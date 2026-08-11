@@ -23,36 +23,47 @@ extern char **environ;
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"一键更换字体";
+    self.title = @"";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
 
-    UILabel *intro = [self label:@"选择主要字体 ZIP；可选的 100% ZIP 只用于最终覆盖 CoreUI/SFUISoft.ttc。" size:16 color:UIColor.secondaryLabelColor];
+    UILabel *titleLabel = [self label:@"一键更换字体" size:32 color:UIColor.labelColor];
+    titleLabel.font = [UIFont systemFontOfSize:32 weight:UIFontWeightBold];
+    UILabel *formatLabel = [self label:@"压缩包仅支持 ZIP 格式，暂不支持 7z、RAR。" size:13 color:UIColor.tertiaryLabelColor];
     UIButton *primaryButton = [self button:@"选择主要字体包（必选）" action:@selector(selectPrimary)];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
-    UIButton *optionalButton = [self button:@"选择 100% 字体包（可选）" action:@selector(selectOptional)];
-    self.optionalLabel = [self label:@"留空时完全使用主要字体包" size:13 color:UIColor.secondaryLabelColor];
+    UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
+    self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
 
     self.statusLabel = [self label:@"执行顺序：创建原生字体副本 → 覆盖字体 → 原生切换语言 → 重启用户空间" size:14 color:UIColor.secondaryLabelColor];
-    self.statusLabel.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
+    self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    self.statusLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    self.statusLabel.layer.cornerRadius = 12;
+    self.statusLabel.layer.masksToBounds = YES;
 
     self.runButton = [self button:@"检查并开始执行" action:@selector(confirmRun)];
     self.runButton.backgroundColor = UIColor.systemGreenColor;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        intro, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
+        titleLabel, formatLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 16;
+    stack.spacing = 14;
+    [stack setCustomSpacing:8 afterView:titleLabel];
+    [stack setCustomSpacing:26 afterView:formatLabel];
+    [stack setCustomSpacing:8 afterView:primaryButton];
+    [stack setCustomSpacing:8 afterView:optionalButton];
+    [stack setCustomSpacing:24 afterView:self.statusLabel];
     [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],
-        [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20],
+        [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
+        [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
         [stack.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
-        [primaryButton.heightAnchor constraintEqualToConstant:50],
-        [optionalButton.heightAnchor constraintEqualToConstant:50],
-        [self.runButton.heightAnchor constraintEqualToConstant:54],
+        [primaryButton.heightAnchor constraintEqualToConstant:56],
+        [optionalButton.heightAnchor constraintEqualToConstant:56],
+        [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:58],
+        [self.runButton.heightAnchor constraintEqualToConstant:58],
     ]];
     [self cleanupOldImports];
 }
@@ -71,9 +82,9 @@ extern char **environ;
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     [button setTitle:title forState:UIControlStateNormal];
     [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    button.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    button.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     button.backgroundColor = UIColor.systemBlueColor;
-    button.layer.cornerRadius = 12;
+    button.layer.cornerRadius = 16;
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }
@@ -93,8 +104,13 @@ extern char **environ;
 
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
+    NSArray<UTType *> *types = @[UTTypeZIP];
+    if (slot == 2) {
+        UTType *ttcType = [UTType typeWithFilenameExtension:@"ttc"] ?: UTTypeFont;
+        types = @[UTTypeZIP, ttcType];
+    }
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-        initForOpeningContentTypes:@[UTTypeZIP] asCopy:NO];
+        initForOpeningContentTypes:types asCopy:NO];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
@@ -113,11 +129,17 @@ extern char **environ;
 }
 
 - (void)importPickedURL:(NSURL *)source {
-    if (![source.pathExtension.lowercaseString isEqualToString:@"zip"]) {
-        self.statusLabel.text = @"请选择扩展名为 .zip 的字体压缩包。";
+    NSString *extension = source.pathExtension.lowercaseString;
+    BOOL acceptsZIP = [extension isEqualToString:@"zip"];
+    BOOL acceptsTTC = self.pickingSlot == 2 && [extension isEqualToString:@"ttc"];
+    if (!acceptsZIP && !acceptsTTC) {
+        self.statusLabel.text = self.pickingSlot == 1
+            ? @"主要字体包必须是 .zip 文件。"
+            : @"请选择字体 ZIP 或单个 .ttc 文件。";
         return;
     }
-    NSString *name = self.pickingSlot == 1 ? @"primary.zip" : @"optional100.zip";
+    NSString *name = self.pickingSlot == 1 ? @"primary.zip"
+        : (acceptsTTC ? @"optional-SFUISoft.ttc" : @"optional100.zip");
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
     BOOL scoped = [source startAccessingSecurityScopedResource];
@@ -174,6 +196,8 @@ extern char **environ;
 
 - (void)runWithTemporaryLanguage:(NSString *)language originalLanguages:(NSArray<NSString *> *)originalLanguages {
     self.runButton.enabled = NO;
+    self.runButton.backgroundColor = UIColor.systemGreenColor;
+    [self.runButton setTitle:@"正在执行…" forState:UIControlStateNormal];
     self.statusLabel.text = @"正在解压、验证并覆盖字体…";
     NSString *primary = self.primaryPath;
     NSString *optional = self.optionalPath ?: @"-";
@@ -184,24 +208,27 @@ extern char **environ;
             self.primaryPath = nil;
             self.optionalPath = nil;
             self.primaryLabel.text = @"尚未选择";
-            self.optionalLabel.text = @"留空时完全使用主要字体包";
+            self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
             if (status != 0) {
                 self.runButton.enabled = YES;
+                self.runButton.backgroundColor = UIColor.systemRedColor;
+                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
                 NSString *report = [NSString stringWithContentsOfFile:@"/var/mobile/Documents/fontchange_last_result.txt"
                     encoding:NSUTF8StringEncoding error:nil];
                 self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
                 return;
             }
-            self.statusLabel.text = @"字体覆盖完成，正在完成系统刷新…";
+            self.statusLabel.text = @"字体覆盖完成，正在清理字体缓存，即将重启用户空间…";
             NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
             NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
             if (![state writeToFile:statePath atomically:YES]) {
                 self.runButton.enabled = YES;
+                self.runButton.backgroundColor = UIColor.systemRedColor;
+                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
                 self.statusLabel.text = @"字体已覆盖，但无法保存原语言恢复状态；已停止后续操作。";
                 return;
             }
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
-            [self turnScreenOff];
             if ([self invokeNativeLanguage:language fallback:fallback]) {
                 [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
                 [self turnScreenOff];
@@ -234,6 +261,8 @@ extern char **environ;
     Class cls = NSClassFromString(@"InternationalSettingsController");
     if (!handle || !cls) {
         self.runButton.enabled = YES;
+        self.runButton.backgroundColor = UIColor.systemRedColor;
+        [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
         self.statusLabel.text = @"字体已覆盖，但无法加载系统语言切换接口；已取消自动重启。";
         return NO;
     }
@@ -246,7 +275,7 @@ extern char **environ;
     void (^completion)(void) = ^{};
     ((void (*)(id, SEL, id))objc_msgSend)(cls,
         NSSelectorFromString(@"writeLanguageAndLocaleConfigurationIfNeededWithCompletion:"), completion);
-    self.statusLabel.text = @"语言切换已提交；即将重启用户空间。";
+    self.statusLabel.text = @"正在清理字体缓存，即将重启用户空间。";
     return YES;
 }
 

@@ -146,6 +146,19 @@ static BOOL extractArchive(NSString *zipPath, NSString *destination, NSString **
     return YES;
 }
 
+static NSString *matchForCurrentIOS(NSArray<NSString *> *paths) {
+    NSInteger majorVersion = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    NSString *token = [NSString stringWithFormat:@"ios%ld", (long)majorVersion];
+    NSMutableArray<NSString *> *versionMatches = [NSMutableArray array];
+    NSCharacterSet *nonAlphanumeric = NSCharacterSet.alphanumericCharacterSet.invertedSet;
+    for (NSString *path in paths) {
+        NSString *normalized = [[[path lowercaseString] componentsSeparatedByCharactersInSet:nonAlphanumeric]
+            componentsJoinedByString:@""];
+        if ([normalized containsString:token]) [versionMatches addObject:path];
+    }
+    return versionMatches.count == 1 ? versionMatches.firstObject : nil;
+}
+
 static NSString *findPrimaryRoot(NSString *extracted, NSString **failure) {
     NSMutableArray<NSString *> *candidates = [NSMutableArray arrayWithObject:extracted];
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
@@ -164,10 +177,15 @@ static NSString *findPrimaryRoot(NSString *extracted, NSString **failure) {
         valid &= [NSFileManager.defaultManager fileExistsAtPath:[path stringByAppendingPathComponent:@"PingFang.ttc"]];
         if (valid) [matches addObject:path];
     }
+    if (matches.count > 1) {
+        NSString *versionMatch = matchForCurrentIOS(matches);
+        if (versionMatch) return versionMatch;
+    }
     if (matches.count != 1) {
         if (failure) *failure = matches.count == 0
             ? @"主要 ZIP 中找不到同时包含 Core、CoreAddition、CoreUI 和 PingFang.ttc 的字体根目录。"
-            : @"主要 ZIP 中识别到多个字体根目录，请精简压缩包后重试。";
+            : [NSString stringWithFormat:@"主要 ZIP 中识别到多个字体根目录，但无法唯一匹配当前 iOS %ld。",
+                (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion];
         return nil;
     }
     return matches.firstObject;
@@ -181,10 +199,15 @@ static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
             [matches addObject:[extracted stringByAppendingPathComponent:relative]];
         }
     }
+    if (matches.count > 1) {
+        NSString *versionMatch = matchForCurrentIOS(matches);
+        if (versionMatch) return versionMatch;
+    }
     if (matches.count != 1) {
         if (failure) *failure = matches.count == 0
             ? @"可选 100% ZIP 中找不到 CoreUI/SFUISoft.ttc。"
-            : @"可选 100% ZIP 中存在多个 CoreUI/SFUISoft.ttc，无法确定使用哪一个。";
+            : [NSString stringWithFormat:@"可选 ZIP 中存在多个 SFUISoft.ttc，但无法唯一匹配当前 iOS %ld。",
+                (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion];
         return nil;
     }
     return matches.firstObject;
@@ -260,18 +283,26 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     if (!primaryRoot) goto fail;
 
     if (![optionalZip isEqualToString:@"-"]) {
-        directoryError = nil;
-        if (![NSFileManager.defaultManager createDirectoryAtPath:optionalExtract
-                                     withIntermediateDirectories:YES
-                                                      attributes:nil
-                                                           error:&directoryError]) {
-            failure = [NSString stringWithFormat:@"无法创建可选包解压目录 %@：%@", optionalExtract,
-                directoryError.localizedDescription ?: @"未知错误"];
-            goto fail;
+        if ([optionalZip.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
+            if (![NSFileManager.defaultManager fileExistsAtPath:optionalZip]) {
+                failure = @"所选 SFUISoft.ttc 文件不存在或无法读取。";
+                goto fail;
+            }
+            optionalSFUI = optionalZip;
+        } else {
+            directoryError = nil;
+            if (![NSFileManager.defaultManager createDirectoryAtPath:optionalExtract
+                                         withIntermediateDirectories:YES
+                                                          attributes:nil
+                                                               error:&directoryError]) {
+                failure = [NSString stringWithFormat:@"无法创建可选包解压目录 %@：%@", optionalExtract,
+                    directoryError.localizedDescription ?: @"未知错误"];
+                goto fail;
+            }
+            if (!extractArchive(optionalZip, optionalExtract, &failure)) goto fail;
+            optionalSFUI = findOptionalSFUI(optionalExtract, &failure);
+            if (!optionalSFUI) goto fail;
         }
-        if (!extractArchive(optionalZip, optionalExtract, &failure)) goto fail;
-        optionalSFUI = findOptionalSFUI(optionalExtract, &failure);
-        if (!optionalSFUI) goto fail;
     }
 
     prefersMnt = hasZqbbFontMountPreference();
@@ -360,22 +391,12 @@ static BOOL commitLanguages(NSArray<NSString *> *languages) {
     return YES;
 }
 
-static void lockDeviceNow(void) {
-    void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices",
-        RTLD_LAZY | RTLD_LOCAL);
-    if (!handle) return;
-    void (*lockDevice)(void) = dlsym(handle, "SBSLockDevice");
-    if (lockDevice) lockDevice();
-}
-
 static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     pid_t background = fork();
     if (background < 0) return 72;
     if (background > 0) return 0;
     setsid();
-    lockDeviceNow();
     sleep(delay);
-    lockDeviceNow();
 
     NSDictionary *state = [NSDictionary dictionaryWithContentsOfFile:statePath];
     NSArray<NSString *> *languages = [state[@"Languages"] isKindOfClass:NSArray.class] ? state[@"Languages"] : nil;
@@ -392,7 +413,6 @@ static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     if (waitpid(mobileChild, &restoreStatus, 0) < 0 || !WIFEXITED(restoreStatus) || WEXITSTATUS(restoreStatus) != 0) {
         _exit(77);
     }
-    lockDeviceNow();
     sleep(10);
     [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
     sync();
