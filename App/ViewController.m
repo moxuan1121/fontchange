@@ -126,22 +126,24 @@ extern char **environ;
         self.statusLabel.text = @"请先选择主要字体 ZIP。";
         return;
     }
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"选择切换后的语言"
-        message:@"字体覆盖成功后会调用系统原生语言切换，约 12 秒后重启用户空间。请先保存其他 App 中未保存的内容。"
-        preferredStyle:UIAlertControllerStyleActionSheet];
+    NSArray<NSString *> *originalLanguages = NSLocale.preferredLanguages;
+    NSString *current = originalLanguages.firstObject ?: @"zh-Hans";
+    NSString *temporary = [current hasPrefix:@"ja"] ? @"zh-Hans" : @"ja";
+    NSString *temporaryName = [temporary isEqualToString:@"ja"] ? @"日语" : @"简体中文";
+    NSString *message = [NSString stringWithFormat:
+        @"字体覆盖成功后将临时切换到%@，随后自动恢复当前默认语言，最后重启用户空间。请先保存其他 App 中未保存的内容。", temporaryName];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"确认一键更换字体"
+        message:message preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"切换到日语并执行" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        [weakSelf runWithLanguage:@"ja" fallback:@"zh-Hans"];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"切换到简体中文并执行" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-        [weakSelf runWithLanguage:@"zh-Hans" fallback:@"ja"];
+    [alert addAction:[UIAlertAction actionWithTitle:@"开始执行" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+        [weakSelf runWithTemporaryLanguage:temporary originalLanguages:originalLanguages];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView = self.runButton;
     [self presentViewController:alert animated:YES completion:nil];
 }
 
-- (void)runWithLanguage:(NSString *)language fallback:(NSString *)fallback {
+- (void)runWithTemporaryLanguage:(NSString *)language originalLanguages:(NSArray<NSString *> *)originalLanguages {
     self.runButton.enabled = NO;
     self.statusLabel.text = @"正在解压、验证并覆盖字体…";
     NSString *primary = self.primaryPath;
@@ -149,6 +151,11 @@ extern char **environ;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         int status = [self runHelperArguments:@[@"--install", primary, optional] wait:YES];
         dispatch_async(dispatch_get_main_queue(), ^{
+            [self cleanupOldImports];
+            self.primaryPath = nil;
+            self.optionalPath = nil;
+            self.primaryLabel.text = @"尚未选择";
+            self.optionalLabel.text = @"留空时完全使用主要字体包";
             if (status != 0) {
                 self.runButton.enabled = YES;
                 NSString *report = [NSString stringWithContentsOfFile:@"/var/mobile/Documents/fontchange_last_result.txt"
@@ -157,8 +164,18 @@ extern char **environ;
                 return;
             }
             self.statusLabel.text = @"字体覆盖完成，正在提交原生语言切换…";
+            NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
+            NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
+            if (![state writeToFile:statePath atomically:YES]) {
+                self.runButton.enabled = YES;
+                self.statusLabel.text = @"字体已覆盖，但无法保存原语言恢复状态；已停止后续操作。";
+                return;
+            }
+            NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
             if ([self invokeNativeLanguage:language fallback:fallback]) {
-                [self runHelperArguments:@[@"--reboot-after-delay", @"12"] wait:NO];
+                [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
+            } else {
+                [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
             }
         });
     });

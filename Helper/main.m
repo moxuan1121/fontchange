@@ -1,6 +1,9 @@
 #import <Foundation/Foundation.h>
 
 #import <roothide.h>
+#import <dlfcn.h>
+#import <objc/message.h>
+#import <grp.h>
 #import <spawn.h>
 #import <sys/stat.h>
 #import <sys/wait.h>
@@ -186,11 +189,15 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     [NSFileManager.defaultManager createDirectoryAtPath:primaryExtract withIntermediateDirectories:YES attributes:nil error:nil];
 
     NSString *failure = nil;
+    NSString *primaryRoot = nil;
+    NSString *optionalSFUI = nil;
+    NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
+    NSString *target = nil;
+    BOOL usesBindfs = NO;
     if (!extractArchive(primaryZip, primaryExtract, &failure)) goto fail;
-    NSString *primaryRoot = findPrimaryRoot(primaryExtract, &failure);
+    primaryRoot = findPrimaryRoot(primaryExtract, &failure);
     if (!primaryRoot) goto fail;
 
-    NSString *optionalSFUI = nil;
     if (![optionalZip isEqualToString:@"-"]) {
         [NSFileManager.defaultManager createDirectoryAtPath:optionalExtract withIntermediateDirectories:YES attributes:nil error:nil];
         if (!extractArchive(optionalZip, optionalExtract, &failure)) goto fail;
@@ -198,9 +205,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         if (!optionalSFUI) goto fail;
     }
 
-    NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
-    NSString *target = validFontsTarget(@"/mnt/System/Library/Fonts");
-    BOOL usesBindfs = NO;
+    target = validFontsTarget(@"/mnt/System/Library/Fonts");
     if (!target) {
         int mountStatus = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
         if (mountStatus != 0) {
@@ -252,6 +257,50 @@ static int rebootAfterDelay(unsigned int seconds) {
     _exit(runTool(launchctl, @[@"reboot", @"userspace"]));
 }
 
+static BOOL commitLanguages(NSArray<NSString *> *languages) {
+    if (languages.count == 0) return NO;
+    void *handle = dlopen("/System/Library/PreferenceBundles/InternationalSettings.bundle/InternationalSettings",
+        RTLD_LAZY | RTLD_LOCAL);
+    Class cls = NSClassFromString(@"InternationalSettingsController");
+    if (!handle || !cls) return NO;
+    ((void (*)(id, SEL, id))objc_msgSend)(cls, NSSelectorFromString(@"setPreferredLanguages:"), languages);
+    ((void (*)(id, SEL, id))objc_msgSend)(cls, NSSelectorFromString(@"setLanguage:"), languages.firstObject);
+    ((void (*)(id, SEL))objc_msgSend)(cls, NSSelectorFromString(@"syncPreferencesAndPostNotificationForLanguageChange"));
+    void (^completion)(void) = ^{};
+    ((void (*)(id, SEL, id))objc_msgSend)(cls,
+        NSSelectorFromString(@"writeLanguageAndLocaleConfigurationIfNeededWithCompletion:"), completion);
+    return YES;
+}
+
+static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
+    pid_t background = fork();
+    if (background < 0) return 72;
+    if (background > 0) return 0;
+    setsid();
+    sleep(delay);
+
+    NSDictionary *state = [NSDictionary dictionaryWithContentsOfFile:statePath];
+    NSArray<NSString *> *languages = [state[@"Languages"] isKindOfClass:NSArray.class] ? state[@"Languages"] : nil;
+    if (languages.count == 0) _exit(73);
+
+    pid_t mobileChild = fork();
+    if (mobileChild < 0) _exit(74);
+    if (mobileChild == 0) {
+        setgroups(0, NULL);
+        if (setgid(501) != 0 || setuid(501) != 0) _exit(75);
+        _exit(commitLanguages(languages) ? 0 : 76);
+    }
+    int restoreStatus = 0;
+    if (waitpid(mobileChild, &restoreStatus, 0) < 0 || !WIFEXITED(restoreStatus) || WEXITSTATUS(restoreStatus) != 0) {
+        _exit(77);
+    }
+    sleep(10);
+    [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
+    sync();
+    NSString *launchctl = [NSString stringWithUTF8String:jbroot("/bin/launchctl")];
+    _exit(runTool(launchctl, @[@"reboot", @"userspace"]));
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (geteuid() != 0) return 77;
@@ -261,6 +310,10 @@ int main(int argc, char *argv[]) {
         }
         if ([mode isEqualToString:@"--reboot-after-delay"] && argc == 3) {
             return rebootAfterDelay((unsigned int)MAX(5, atoi(argv[2])));
+        }
+        if ([mode isEqualToString:@"--restore-language-and-reboot"] && argc == 4) {
+            return restoreLanguageAndReboot([NSString stringWithUTF8String:argv[2]],
+                (unsigned int)MAX(5, atoi(argv[3])));
         }
         return 64;
     }
