@@ -268,13 +268,7 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
         NSLog(@"International language configuration write completed");
     };
     ((void (*)(id, SEL, id))objc_msgSend)(controllerClass, writeConfiguration, completion);
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        self.japaneseButton.enabled = YES;
-        self.chineseButton.enabled = YES;
-        self.resultView.text = [NSString stringWithFormat:
-            @"完整提交链路已返回，但系统没有开始切换。当前首选语言：%@", NSLocale.preferredLanguages.firstObject ?: @"未知"];
-    });
+    self.resultView.text = @"语言切换请求已提交，正在等待系统完成。接口返回不代表切换失败。";
 }
 
 @end
