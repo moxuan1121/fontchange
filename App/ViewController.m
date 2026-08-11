@@ -19,7 +19,8 @@ static BOOL FCContainsKeyword(NSString *value) {
     if (value.length == 0) return NO;
     NSString *lower = value.lowercaseString;
     NSArray<NSString *> *keywords = @[@"language", @"localization", @"locale", @"intl",
-        @"linguistic", @"preferredlanguages", @"applelanguages", @"switch"];
+        @"linguistic", @"preferredlanguages", @"applelanguages", @"switch",
+        @"apply", @"commit", @"migrate", @"relaunch", @"restart", @"daemon"];
     for (NSString *keyword in keywords) {
         if ([lower containsString:keyword]) return YES;
     }
@@ -154,7 +155,10 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
 
     NSArray<NSString *> *paths = @[
         @"/System/Library/PrivateFrameworks/IntlPreferences.framework/IntlPreferences",
-        @"/System/Library/PrivateFrameworks/Preferences.framework/Preferences"
+        @"/System/Library/PrivateFrameworks/Preferences.framework/Preferences",
+        @"/System/Library/PreferenceBundles/InternationalSettings.bundle/InternationalSettings",
+        @"/System/Library/PreferenceBundles/GeneralSettingsUI.bundle/GeneralSettingsUI",
+        @"/System/Library/PreferenceBundles/LocalizationSettings.bundle/LocalizationSettings"
     ];
     for (NSString *path in paths) {
         dlerror();
