@@ -26,7 +26,7 @@ extern char **environ;
 
     UILabel *detailLabel = [[UILabel alloc] init];
     detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    detailLabel.text = @"清理系统与所有 App 的 Library/Caches 内容，同时保留定位、隐私与授权缓存，然后执行一次用户空间重启。";
+    detailLabel.text = @"清理普通 App 与部分用户缓存，完全跳过系统容器、定位、隐私与授权缓存，然后执行一次用户空间重启。";
     detailLabel.font = [UIFont systemFontOfSize:16];
     detailLabel.textColor = UIColor.secondaryLabelColor;
     detailLabel.numberOfLines = 0;

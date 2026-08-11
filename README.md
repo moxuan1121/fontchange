@@ -5,12 +5,11 @@
 ## 清理范围
 
 - `/var/mobile/Library/Caches/` 的内容
-- `/var/root/Library/Caches/` 的内容
-- 每个普通 App、系统 App、App Group 与 System Group 容器中的 `Library/Caches/` 内容
+- 每个普通 App 与 App Group 容器中的 `Library/Caches/` 内容
 
 程序保留所有 `Caches` 目录本身，并明确跳过 RootHide 的隐藏 `.jbroot-*` 目录。
 
-同时保留系统用户缓存根目录中的定位与隐私授权条目，包括 `locationd`、CoreLocation、TCC、PrivacyAccounting、routined 与 GeoServices，避免重置 App 的定位授权。
+完全跳过 `/var/root/Library/Caches`、`Data/System` 与 `Shared/SystemGroup`。系统用户缓存根目录中，只要名称包含 location、TCC、privacy、route、geo、permission 或 authorization，均会保留。
 
 ## 不会访问
 

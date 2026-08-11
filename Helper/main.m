@@ -19,7 +19,15 @@ static int rebootUserspace(void) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 71;
 }
 
-static NSUInteger clearDirectoryContentsExcluding(NSString *path, NSSet<NSString *> *excludedNames) {
+static BOOL isProtectedCacheName(NSString *name, NSArray<NSString *> *protectedTerms) {
+    NSString *lower = name.lowercaseString;
+    for (NSString *term in protectedTerms) {
+        if ([lower containsString:term]) return YES;
+    }
+    return NO;
+}
+
+static NSUInteger clearDirectoryContentsExcluding(NSString *path, NSArray<NSString *> *protectedTerms) {
     NSFileManager *manager = NSFileManager.defaultManager;
     BOOL isDirectory = NO;
     if (![manager fileExistsAtPath:path isDirectory:&isDirectory] || !isDirectory) return 0;
@@ -33,7 +41,7 @@ static NSUInteger clearDirectoryContentsExcluding(NSString *path, NSSet<NSString
 
     NSUInteger removed = 0;
     for (NSString *child in children) {
-        if ([excludedNames containsObject:child.lowercaseString]) {
+        if (isProtectedCacheName(child, protectedTerms)) {
             NSLog(@"Preserving protected cache entry %@", child);
             continue;
         }
@@ -49,7 +57,7 @@ static NSUInteger clearDirectoryContentsExcluding(NSString *path, NSSet<NSString
 }
 
 static NSUInteger clearDirectoryContents(NSString *path) {
-    return clearDirectoryContentsExcluding(path, [NSSet set]);
+    return clearDirectoryContentsExcluding(path, @[]);
 }
 
 static NSUInteger clearCachesInsideContainers(NSString *containersRoot) {
@@ -76,29 +84,24 @@ static NSUInteger clearICleanerStyleCaches(void) {
     NSUInteger removed = 0;
 
     // Preserve authorization and privacy state maintained by location/TCC services.
-    NSSet<NSString *> *protectedMobileCaches = [NSSet setWithArray:@[
-        @"locationd",
-        @"com.apple.locationd",
-        @"com.apple.corelocation",
-        @"com.apple.tccd",
-        @"tccd",
-        @"com.apple.privacyaccounting",
-        @"com.apple.routined",
-        @"routined",
-        @"geoservices",
-        @"com.apple.geoservices",
-    ]];
+    NSArray<NSString *> *protectedMobileCacheTerms = @[
+        @"location",
+        @"corelocation",
+        @"tcc",
+        @"privacy",
+        @"route",
+        @"geo",
+        @"permission",
+        @"authorization",
+    ];
 
     // System/user caches. Only child entries are removed; the cache roots remain.
-    removed += clearDirectoryContentsExcluding(@"/var/mobile/Library/Caches", protectedMobileCaches);
-    removed += clearDirectoryContents(@"/var/root/Library/Caches");
+    removed += clearDirectoryContentsExcluding(@"/var/mobile/Library/Caches", protectedMobileCacheTerms);
 
     // Per-app and shared container caches. Documents and Preferences are never traversed.
     NSArray<NSString *> *containerRoots = @[
         @"/var/mobile/Containers/Data/Application",
-        @"/var/mobile/Containers/Data/System",
         @"/var/mobile/Containers/Shared/AppGroup",
-        @"/var/mobile/Containers/Shared/SystemGroup",
     ];
     for (NSString *root in containerRoots) {
         removed += clearCachesInsideContainers(root);

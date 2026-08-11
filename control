@@ -1,6 +1,6 @@
 Package: com.moxuan1121.fontchange
 Name: Font Cache Refresh (iCleaner Mode)
-Version: 1.2.0-test2
+Version: 1.2.0-test3
 Architecture: iphoneos-arm64e
 Description: Clears system and application Library/Caches content, then performs one userspace reboot on Dopamine RootHide.
 Maintainer: moxuan1121
