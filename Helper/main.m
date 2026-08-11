@@ -277,22 +277,22 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         goto fail;
     }
 
+    if (usesBindfs) {
+        saveStatus = runToolCapturingOutput(mountBindfs,
+            @[@"-s", @"/System/Library/Fonts"], &saveDetails);
+        if (saveStatus != 0) {
+            saveNote = [NSString stringWithFormat:
+                @"；警告：mount_bindfs -s 返回 %d（%@），不影响本次字体覆盖", saveStatus,
+                saveDetails.length ? saveDetails : @"没有错误详情"];
+        }
+    }
+
     for (NSString *name in @[@"Core", @"CoreAddition", @"CoreUI"]) {
         if (!mergeDirectory([primaryRoot stringByAppendingPathComponent:name], [target stringByAppendingPathComponent:name], &failure)) goto fail;
     }
     if (!copyFile([primaryRoot stringByAppendingPathComponent:@"PingFang.ttc"],
         [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
-    if (usesBindfs) {
-        saveStatus = runToolCapturingOutput(mountBindfs,
-            @[@"-s", @"/System/Library/Fonts"], &saveDetails);
-    }
-
-    if (saveStatus != 0) {
-        saveNote = [NSString stringWithFormat:
-            @"；警告：mount_bindfs -s 返回 %d（%@），不影响本次字体覆盖", saveStatus,
-            saveDetails.length ? saveDetails : @"没有错误详情"];
-    }
     writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；挂载方案=%@%@%@", target,
         usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"mnt（未执行任何挂载指令）",
         optionalSFUI ? @"；SFUISoft.ttc 使用可选 100% 字体包" : @"；全部字体使用主要字体包",
