@@ -239,7 +239,7 @@ extern char **environ;
                 return;
             }
             self.statusLabel.text = sfuiOnly
-                ? @"SFUISoft 替换完成，正在清理字体缓存，即将重启 SpringBoard…"
+                ? @"SFUISoft 替换完成，正在清理字体缓存，即将重启用户空间…"
                 : @"字体覆盖完成，正在清理字体缓存，即将重启用户空间…";
             NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
             NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
@@ -251,12 +251,8 @@ extern char **environ;
                 return;
             }
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
-            NSString *restoreMode = sfuiOnly
-                ? @"--restore-language-and-sbreload"
-                : @"--restore-language-and-reboot";
-            int preflightStatus = [self runHelperArguments:@[
-                @"--preflight", sfuiOnly ? @"springboard" : @"userspace"
-            ] wait:YES];
+            NSString *restoreMode = @"--restore-language-and-reboot";
+            int preflightStatus = [self runHelperArguments:@[@"--preflight", @"userspace"] wait:YES];
             if (preflightStatus != 0) {
                 [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
                 self.runButton.enabled = YES;
@@ -278,9 +274,7 @@ extern char **environ;
                         @"后台语言恢复任务启动失败（%d），已尝试立即恢复原语言。", spawnStatus];
                     return;
                 }
-                self.statusLabel.text = sfuiOnly
-                    ? @"正在清理字体缓存，即将重启 SpringBoard。"
-                    : @"正在清理字体缓存，即将重启用户空间。";
+                self.statusLabel.text = @"正在清理字体缓存，即将重启用户空间。";
                 // Give the language-change UI enough time to become visible before locking.
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                     dispatch_get_main_queue(), ^{
