@@ -251,6 +251,7 @@ static BOOL hasZqbbFontMountPreference(void) {
 }
 
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
+    BOOL sfuiOnly = [primaryZip isEqualToString:@"-"];
     NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"com.moxuan1121.fontchange-%@", NSUUID.UUID.UUIDString]];
@@ -270,17 +271,24 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *saveDetails = nil;
     NSString *saveNote = @"";
     NSError *directoryError = nil;
-    if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
-                                 withIntermediateDirectories:YES
-                                                  attributes:nil
-                                                       error:&directoryError]) {
-        failure = [NSString stringWithFormat:@"无法创建临时解压目录 %@：%@", primaryExtract,
-            directoryError.localizedDescription ?: @"未知错误"];
+    if (!sfuiOnly) {
+        if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
+                                     withIntermediateDirectories:YES
+                                                      attributes:nil
+                                                           error:&directoryError]) {
+            failure = [NSString stringWithFormat:@"无法创建临时解压目录 %@：%@", primaryExtract,
+                directoryError.localizedDescription ?: @"未知错误"];
+            goto fail;
+        }
+        if (!extractArchive(primaryZip, primaryExtract, &failure)) goto fail;
+        primaryRoot = findPrimaryRoot(primaryExtract, &failure);
+        if (!primaryRoot) goto fail;
+    }
+
+    if (sfuiOnly && [optionalZip isEqualToString:@"-"]) {
+        failure = @"单独替换模式必须选择 SFUISoft 字体包或 TTC 文件。";
         goto fail;
     }
-    if (!extractArchive(primaryZip, primaryExtract, &failure)) goto fail;
-    primaryRoot = findPrimaryRoot(primaryExtract, &failure);
-    if (!primaryRoot) goto fail;
 
     if (![optionalZip isEqualToString:@"-"]) {
         if ([optionalZip.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
@@ -309,6 +317,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
     if (prefersMnt && mntTarget) target = mntTarget;
+    if (sfuiOnly && !target && bindfsTarget) target = bindfsTarget;
+    if (sfuiOnly && !target && mntTarget) target = mntTarget;
     if (!target) {
         NSString *mountDetails = nil;
         NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
@@ -345,16 +355,22 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
     }
 
-    for (NSString *name in @[@"Core", @"CoreAddition", @"CoreUI"]) {
-        if (!mergeDirectory([primaryRoot stringByAppendingPathComponent:name], [target stringByAppendingPathComponent:name], &failure)) goto fail;
+    if (!sfuiOnly) {
+        for (NSString *name in @[@"Core", @"CoreAddition", @"CoreUI"]) {
+            if (!mergeDirectory([primaryRoot stringByAppendingPathComponent:name], [target stringByAppendingPathComponent:name], &failure)) goto fail;
+        }
+        if (!copyFile([primaryRoot stringByAppendingPathComponent:@"PingFang.ttc"],
+            [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     }
-    if (!copyFile([primaryRoot stringByAppendingPathComponent:@"PingFang.ttc"],
-        [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
+    NSString *mountScheme = [target containsString:@"/bindfs/"]
+        ? (usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"bindfs（复用现有字体目录）")
+        : @"mnt（未执行任何挂载指令）";
     writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；检测 zqbb=%@；挂载方案=%@%@%@", target,
         prefersMnt ? @"是（优先 mnt）" : @"否（优先 bindfs）",
-        usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"mnt（未执行任何挂载指令）",
-        optionalSFUI ? @"；SFUISoft.ttc 使用可选 100% 字体包" : @"；全部字体使用主要字体包",
+        mountScheme,
+        sfuiOnly ? @"；仅替换 SFUISoft.ttc" :
+            (optionalSFUI ? @"；SFUISoft.ttc 使用可选字体" : @"；全部字体使用主要字体包"),
         saveNote]);
     [NSFileManager.defaultManager removeItemAtPath:work error:nil];
     return 0;
@@ -399,7 +415,7 @@ static void lockDeviceNow(void) {
     if (lockDevice) lockDevice();
 }
 
-static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
+static int restoreLanguageAndFinish(NSString *statePath, unsigned int delay, BOOL userspaceReboot) {
     pid_t background = fork();
     if (background < 0) return 72;
     if (background > 0) return 0;
@@ -427,8 +443,12 @@ static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     sleep(10);
     [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
     sync();
-    NSString *launchctl = [NSString stringWithUTF8String:jbroot("/bin/launchctl")];
-    _exit(runTool(launchctl, @[@"reboot", @"userspace"]));
+    if (userspaceReboot) {
+        NSString *launchctl = [NSString stringWithUTF8String:jbroot("/bin/launchctl")];
+        _exit(runTool(launchctl, @[@"reboot", @"userspace"]));
+    }
+    NSString *sbreload = [NSString stringWithUTF8String:jbroot("/usr/bin/sbreload")];
+    _exit(runTool(sbreload, @[]));
 }
 
 int main(int argc, char *argv[]) {
@@ -441,7 +461,8 @@ int main(int argc, char *argv[]) {
         if ([mode isEqualToString:@"--import"] && argc == 4) {
             NSString *source = [NSString stringWithUTF8String:argv[2]];
             NSString *destination = [NSString stringWithUTF8String:argv[3]];
-            if (![source.pathExtension.lowercaseString isEqualToString:@"zip"]) return 65;
+            NSString *extension = source.pathExtension.lowercaseString;
+            if (![extension isEqualToString:@"zip"] && ![extension isEqualToString:@"ttc"]) return 65;
             NSString *parent = destination.stringByDeletingLastPathComponent;
             [NSFileManager.defaultManager createDirectoryAtPath:parent
                                     withIntermediateDirectories:YES
@@ -454,8 +475,12 @@ int main(int argc, char *argv[]) {
             return rebootAfterDelay((unsigned int)MAX(5, atoi(argv[2])));
         }
         if ([mode isEqualToString:@"--restore-language-and-reboot"] && argc == 4) {
-            return restoreLanguageAndReboot([NSString stringWithUTF8String:argv[2]],
-                (unsigned int)MAX(5, atoi(argv[3])));
+            return restoreLanguageAndFinish([NSString stringWithUTF8String:argv[2]],
+                (unsigned int)MAX(5, atoi(argv[3])), YES);
+        }
+        if ([mode isEqualToString:@"--restore-language-and-sbreload"] && argc == 4) {
+            return restoreLanguageAndFinish([NSString stringWithUTF8String:argv[2]],
+                (unsigned int)MAX(5, atoi(argv[3])), NO);
         }
         return 64;
     }

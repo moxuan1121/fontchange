@@ -178,8 +178,8 @@ extern char **environ;
 }
 
 - (void)confirmRun {
-    if (self.primaryPath.length == 0) {
-        self.statusLabel.text = @"请先选择主要字体 ZIP。";
+    if (self.primaryPath.length == 0 && self.optionalPath.length == 0) {
+        self.statusLabel.text = @"请至少选择主要字体包，或选择用于 SFUISoft 的字体包 / TTC 文件。";
         return;
     }
     NSArray<NSString *> *originalLanguages = NSLocale.preferredLanguages;
@@ -200,8 +200,11 @@ extern char **environ;
     self.runButton.enabled = NO;
     self.runButton.backgroundColor = UIColor.systemGreenColor;
     [self.runButton setTitle:@"正在执行…" forState:UIControlStateNormal];
-    self.statusLabel.text = @"正在解压、验证并覆盖字体…";
-    NSString *primary = self.primaryPath;
+    self.statusLabel.text = self.primaryPath.length
+        ? @"正在解压、验证并全局覆盖字体…"
+        : @"正在验证并单独替换 SFUISoft.ttc…";
+    BOOL sfuiOnly = self.primaryPath.length == 0;
+    NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         int status = [self runHelperArguments:@[@"--install", primary, optional] wait:YES];
@@ -220,7 +223,9 @@ extern char **environ;
                 self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
                 return;
             }
-            self.statusLabel.text = @"字体覆盖完成，正在清理字体缓存，即将重启用户空间…";
+            self.statusLabel.text = sfuiOnly
+                ? @"SFUISoft 替换完成，正在清理字体缓存，即将重启 SpringBoard…"
+                : @"字体覆盖完成，正在清理字体缓存，即将重启用户空间…";
             NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
             NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
             if (![state writeToFile:statePath atomically:YES]) {
@@ -232,7 +237,10 @@ extern char **environ;
             }
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
             if ([self invokeNativeLanguage:language fallback:fallback]) {
-                [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
+                NSString *restoreMode = sfuiOnly
+                    ? @"--restore-language-and-sbreload"
+                    : @"--restore-language-and-reboot";
+                [self runHelperArguments:@[restoreMode, statePath, @"8"] wait:NO];
                 // Give the language-change UI enough time to become visible before locking.
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                     dispatch_get_main_queue(), ^{
