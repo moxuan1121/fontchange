@@ -17,6 +17,7 @@ extern char **environ;
 @property(nonatomic, strong) UILabel *optionalLabel;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIButton *runButton;
+@property(nonatomic, strong) UIButton *clearButton;
 @end
 
 @implementation ViewController
@@ -34,8 +35,7 @@ extern char **environ;
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
     UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
     self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
-    UIButton *clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
-    clearButton.backgroundColor = UIColor.systemGrayColor;
+    self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
 
     self.statusLabel = [self label:@"执行顺序：创建原生字体副本 → 覆盖字体 → 原生切换语言 → 重启用户空间" size:14 color:UIColor.secondaryLabelColor];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
@@ -47,7 +47,7 @@ extern char **environ;
     self.runButton.backgroundColor = UIColor.systemGreenColor;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleLabel, featureLabel, formatLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, clearButton,
+        titleLabel, featureLabel, formatLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -58,7 +58,7 @@ extern char **environ;
     [stack setCustomSpacing:26 afterView:formatLabel];
     [stack setCustomSpacing:8 afterView:primaryButton];
     [stack setCustomSpacing:8 afterView:optionalButton];
-    [stack setCustomSpacing:20 afterView:clearButton];
+    [stack setCustomSpacing:20 afterView:self.clearButton];
     [stack setCustomSpacing:24 afterView:self.statusLabel];
     [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
@@ -67,11 +67,12 @@ extern char **environ;
         [stack.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
         [primaryButton.heightAnchor constraintEqualToConstant:56],
         [optionalButton.heightAnchor constraintEqualToConstant:56],
-        [clearButton.heightAnchor constraintEqualToConstant:48],
+        [self.clearButton.heightAnchor constraintEqualToConstant:48],
         [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:58],
         [self.runButton.heightAnchor constraintEqualToConstant:58],
     ]];
     [self cleanupOldImports];
+    [self updateClearButtonState];
 }
 
 - (UILabel *)label:(NSString *)text size:(CGFloat)size color:(UIColor *)color {
@@ -114,7 +115,17 @@ extern char **environ;
     self.primaryLabel.text = @"尚未选择";
     self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
     [self cleanupOldImports];
+    [self updateClearButtonState];
     self.statusLabel.text = @"已清空所选字体包；系统中已应用的字体不会受到影响。";
+}
+
+- (void)updateClearButtonState {
+    BOOL hasSelection = self.primaryPath.length > 0 || self.optionalPath.length > 0;
+    self.clearButton.enabled = hasSelection;
+    self.clearButton.backgroundColor = hasSelection ? UIColor.systemBlueColor : UIColor.systemGray4Color;
+    [self.clearButton setTitleColor:hasSelection ? UIColor.whiteColor : UIColor.systemGrayColor
+                          forState:UIControlStateNormal];
+    self.clearButton.alpha = hasSelection ? 1.0 : 0.72;
 }
 
 - (void)handleExternalURL:(NSURL *)url {
@@ -224,6 +235,7 @@ extern char **environ;
         self.optionalLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
     }
+    [self updateClearButtonState];
 }
 
 - (void)confirmRun {
