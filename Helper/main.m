@@ -44,6 +44,7 @@ static BOOL clearFontRelatedCaches(NSError **error) {
         @"/var/mobile/Library/Caches/TelephonyUI-7",
         @"/var/mobile/Library/Caches/TelephonyUI-8",
         @"/var/mobile/Library/Caches/com.apple.UIStatusBar",
+        @"/var/mobile/Library/Caches/com.apple.sharingd",
         @"/var/mobile/Library/SMS/com.apple.messages.geometrycache_v3.plist",
     ];
 

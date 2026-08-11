@@ -25,7 +25,7 @@ extern char **environ;
 
     UILabel *detailLabel = [[UILabel alloc] init];
     detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    detailLabel.text = @"清理键盘、状态栏、电话界面和短信布局缓存，然后执行一次用户空间重启。不会修改语言或字体文件。";
+    detailLabel.text = @"清理键盘、状态栏、分享服务、电话界面和短信布局缓存，然后执行一次用户空间重启。不会修改语言或字体文件。";
     detailLabel.font = [UIFont systemFontOfSize:16];
     detailLabel.textColor = UIColor.secondaryLabelColor;
     detailLabel.numberOfLines = 0;
