@@ -182,6 +182,21 @@ extern char **environ;
         self.statusLabel.text = @"请至少选择主要字体包，或选择用于 SFUISoft 的字体包 / TTC 文件。";
         return;
     }
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"执行前请注意"
+                         message:@"执行过程中会自动进入锁屏界面。请勿解锁、切换应用或进行其他操作，请耐心等待系统完成语言恢复及重启。"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"继续执行"
+                                            style:UIAlertActionStyleDefault
+                                          handler:^(__unused UIAlertAction *action) {
+        [weakSelf beginConfirmedRun];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)beginConfirmedRun {
     NSArray<NSString *> *originalLanguages = NSLocale.preferredLanguages;
     NSString *current = originalLanguages.firstObject ?: @"zh-Hans";
     NSString *temporary = [current hasPrefix:@"ja"] ? @"zh-Hans" : @"ja";
