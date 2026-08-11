@@ -258,12 +258,15 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
 
     target = validFontsTarget(@"/mnt/System/Library/Fonts");
     if (!target) {
-        int mountStatus = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
-        if (mountStatus != 0) {
-            failure = [NSString stringWithFormat:@"mount_bindfs --copy 执行失败（%d）。", mountStatus];
+        NSString *mountDetails = nil;
+        int mountStatus = runToolCapturingOutput(mountBindfs,
+            @[@"--copy", @"/System/Library/Fonts"], &mountDetails);
+        target = validFontsTarget(@"/bindfs/System/Library/Fonts");
+        if (!target) {
+            failure = [NSString stringWithFormat:@"mount_bindfs --copy 后仍未生成有效字体目录（%d）：%@",
+                mountStatus, mountDetails.length ? mountDetails : @"命令没有返回错误详情"];
             goto fail;
         }
-        target = validFontsTarget(@"/bindfs/System/Library/Fonts");
         usesBindfs = YES;
     }
     if (!target) {
