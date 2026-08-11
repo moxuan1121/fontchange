@@ -33,6 +33,42 @@ static int runTool(NSString *path, NSArray<NSString *> *arguments) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 71;
 }
 
+static int runToolCapturingOutput(NSString *path, NSArray<NSString *> *arguments, NSString **output) {
+    int descriptors[2] = {-1, -1};
+    if (pipe(descriptors) != 0) return 69;
+    char **argv = calloc(arguments.count + 2, sizeof(char *));
+    argv[0] = strdup(path.UTF8String);
+    for (NSUInteger index = 0; index < arguments.count; index++) {
+        argv[index + 1] = strdup(arguments[index].UTF8String);
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, descriptors[0]);
+    posix_spawn_file_actions_addclose(&actions, descriptors[1]);
+    pid_t pid = 0;
+    int spawnStatus = posix_spawn(&pid, path.UTF8String, &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    for (NSUInteger index = 0; index < arguments.count + 1; index++) free(argv[index]);
+    free(argv);
+    close(descriptors[1]);
+    if (spawnStatus != 0) {
+        close(descriptors[0]);
+        return spawnStatus;
+    }
+    NSFileHandle *handle = [[NSFileHandle alloc] initWithFileDescriptor:descriptors[0] closeOnDealloc:YES];
+    NSData *data = [handle readDataToEndOfFile];
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) return 70;
+    if (output) {
+        NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        if (!text) text = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+        *output = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 71;
+}
+
 static BOOL unsafeArchiveEntry(NSString *entry) {
     if ([entry hasPrefix:@"/"] || [entry hasPrefix:@"\\"]) return YES;
     for (NSString *component in [entry componentsSeparatedByString:@"/"]) {
@@ -91,9 +127,11 @@ static BOOL validateArchive(NSString *zipPath, NSString **failure) {
 static BOOL extractArchive(NSString *zipPath, NSString *destination, NSString **failure) {
     if (!validateArchive(zipPath, failure)) return NO;
     NSString *unzip = [NSString stringWithUTF8String:jbroot("/usr/bin/unzip")];
-    int status = runTool(unzip, @[@"-qq", @"-o", zipPath, @"-d", destination]);
+    NSString *details = nil;
+    int status = runToolCapturingOutput(unzip, @[@"-o", zipPath, @"-d", destination], &details);
     if (status != 0) {
-        if (failure) *failure = [NSString stringWithFormat:@"解压失败（%d）。", status];
+        if (failure) *failure = [NSString stringWithFormat:@"解压失败（%d）：%@", status,
+            details.length ? details : @"unzip 没有返回错误详情"];
         return NO;
     }
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:destination];
