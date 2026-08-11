@@ -44,22 +44,38 @@ static BOOL unsafeArchiveEntry(NSString *entry) {
 
 static BOOL validateArchive(NSString *zipPath, NSString **failure) {
     NSString *unzip = [NSString stringWithUTF8String:jbroot("/usr/bin/unzip")];
-    NSTask *task = [[NSTask alloc] init];
-    task.launchPath = unzip;
-    task.arguments = @[@"-Z1", zipPath];
-    NSPipe *pipe = [NSPipe pipe];
-    task.standardOutput = pipe;
-    task.standardError = [NSPipe pipe];
-    @try { [task launch]; [task waitUntilExit]; } @catch (NSException *exception) {
+    int descriptors[2] = {-1, -1};
+    if (pipe(descriptors) != 0) {
+        if (failure) *failure = @"无法创建 ZIP 检查管道。";
+        return NO;
+    }
+    NSData *toolData = [unzip dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *modeData = [@"-Z1" dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *pathData = [zipPath dataUsingEncoding:NSUTF8StringEncoding];
+    char *argv[] = {(char *)toolData.bytes, (char *)modeData.bytes, (char *)pathData.bytes, NULL};
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, descriptors[0]);
+    posix_spawn_file_actions_addclose(&actions, descriptors[1]);
+    pid_t pid = 0;
+    int spawnStatus = posix_spawn(&pid, unzip.UTF8String, &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(descriptors[1]);
+    if (spawnStatus != 0) {
+        close(descriptors[0]);
         if (failure) *failure = @"未找到 unzip，请先通过软件源安装 unzip。";
         return NO;
     }
-    if (task.terminationStatus != 0) {
+    NSFileHandle *readHandle = [[NSFileHandle alloc] initWithFileDescriptor:descriptors[0] closeOnDealloc:YES];
+    NSData *output = [readHandle readDataToEndOfFile];
+    int processStatus = 0;
+    waitpid(pid, &processStatus, 0);
+    if (!WIFEXITED(processStatus) || WEXITSTATUS(processStatus) != 0) {
         if (failure) *failure = @"ZIP 无法读取或已经损坏。";
         return NO;
     }
-    NSString *listing = [[NSString alloc] initWithData:[pipe.fileHandleForReading readDataToEndOfFile]
-        encoding:NSUTF8StringEncoding];
+    NSString *listing = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
     if (listing.length == 0) {
         if (failure) *failure = @"ZIP 内容为空。";
         return NO;
@@ -137,24 +153,13 @@ static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
     return matches.firstObject;
 }
 
-static NSString *fontsTarget(void) {
-    NSArray<NSString *> *relativeCandidates = @[@"/bindfs/System/Library/Fonts", @"/mnt/System/Library/Fonts"];
-    NSMutableArray<NSString *> *valid = [NSMutableArray array];
-    for (NSString *relative in relativeCandidates) {
-        NSString *path = [NSString stringWithUTF8String:jbroot(relative.UTF8String)];
-        BOOL directory = NO;
-        if ([NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] && directory &&
-            [NSFileManager.defaultManager fileExistsAtPath:[path stringByAppendingPathComponent:@"Core"]]) {
-            [valid addObject:path];
-        }
-    }
-    if (valid.count == 1) return valid.firstObject;
-    if (valid.count > 1) {
-        return [valid sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
-            NSDate *ad = [[NSFileManager.defaultManager attributesOfItemAtPath:a error:nil] fileModificationDate];
-            NSDate *bd = [[NSFileManager.defaultManager attributesOfItemAtPath:b error:nil] fileModificationDate];
-            return [bd compare:ad];
-        }].firstObject;
+static NSString *validFontsTarget(NSString *relative) {
+    NSString *path = [NSString stringWithUTF8String:jbroot(relative.UTF8String)];
+    BOOL directory = NO;
+    if ([NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] && directory &&
+        [NSFileManager.defaultManager fileExistsAtPath:[path stringByAppendingPathComponent:@"Core"]] &&
+        [NSFileManager.defaultManager fileExistsAtPath:[path stringByAppendingPathComponent:@"CoreUI"]]) {
+        return path;
     }
     return nil;
 }
@@ -194,14 +199,19 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     }
 
     NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
-    int mountStatus = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
-    if (mountStatus != 0) {
-        failure = [NSString stringWithFormat:@"mount_bindfs --copy 执行失败（%d）。", mountStatus];
-        goto fail;
-    }
-    NSString *target = fontsTarget();
+    NSString *target = validFontsTarget(@"/mnt/System/Library/Fonts");
+    BOOL usesBindfs = NO;
     if (!target) {
-        failure = @"未找到 mount_bindfs 生成的 bindfs 或 mnt 字体目录。";
+        int mountStatus = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
+        if (mountStatus != 0) {
+            failure = [NSString stringWithFormat:@"mount_bindfs --copy 执行失败（%d）。", mountStatus];
+            goto fail;
+        }
+        target = validFontsTarget(@"/bindfs/System/Library/Fonts");
+        usesBindfs = YES;
+    }
+    if (!target) {
+        failure = @"未找到有效的 mnt 字体目录，mount_bindfs 也未生成有效 bindfs 字体目录。";
         goto fail;
     }
 
@@ -211,8 +221,16 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     if (!copyFile([primaryRoot stringByAppendingPathComponent:@"PingFang.ttc"],
         [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
+    if (usesBindfs) {
+        int saveStatus = runTool(mountBindfs, @[@"-s", @"/System/Library/Fonts"]);
+        if (saveStatus != 0) {
+            failure = [NSString stringWithFormat:@"字体已覆盖，但 mount_bindfs -s 登记失败（%d）。", saveStatus];
+            goto fail;
+        }
+    }
 
-    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@%@", target,
+    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；挂载方案=%@%@", target,
+        usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"mnt（未执行任何挂载指令）",
         optionalSFUI ? @"；SFUISoft.ttc 使用可选 100% 字体包" : @"；全部字体使用主要字体包"]);
     [NSFileManager.defaultManager removeItemAtPath:work error:nil];
     return 0;

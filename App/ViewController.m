@@ -5,6 +5,7 @@
 #import <spawn.h>
 #import <sys/wait.h>
 #import <roothide.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 extern char **environ;
 
@@ -93,7 +94,7 @@ extern char **environ;
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-        initWithDocumentTypes:@[@"public.zip-archive"] inMode:UIDocumentPickerModeImport];
+        initForOpeningContentTypes:@[UTTypeZIP] asCopy:YES];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
