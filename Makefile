@@ -1,4 +1,6 @@
-ARCHS = arm64e
+# RootHide packages use the iphoneos-arm64e Debian architecture. Standalone
+# apps/tools remain arm64 to avoid the incompatible arm64e ABI on iOS 15.
+ARCHS = arm64
 TARGET = iphone:clang:latest:15.0
 THEOS_PACKAGE_SCHEME = roothide
 
