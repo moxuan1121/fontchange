@@ -16,7 +16,8 @@
 
 - iOS 15.0+
 - Dopamine RootHide
-- RootHide `iphoneos-arm64e` 包（Mach-O 仅编译 arm64e）
+- RootHide `iphoneos-arm64e` Debian 包
+- App/helper 使用 arm64 Mach-O，避免 iOS 15 的 arm64e ABI 不兼容
 - 已针对 iPhone 13 Pro Max、iOS 15.6 的目标环境设计
 
 ## 构建
