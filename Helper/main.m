@@ -270,6 +270,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     int saveStatus = 0;
     NSString *saveDetails = nil;
     NSString *saveNote = @"";
+    NSString *mountScheme = nil;
     NSError *directoryError = nil;
     if (!sfuiOnly) {
         if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
@@ -363,7 +364,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     }
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
-    NSString *mountScheme = [target containsString:@"/bindfs/"]
+    mountScheme = [target containsString:@"/bindfs/"]
         ? (usesBindfs ? @"bindfs（已执行 --copy 和 -s）" : @"bindfs（复用现有字体目录）")
         : @"mnt（未执行任何挂载指令）";
     writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；检测 zqbb=%@；挂载方案=%@%@%@", target,
