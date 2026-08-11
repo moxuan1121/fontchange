@@ -216,7 +216,8 @@ static BOOL copyFile(NSString *source, NSString *destination, NSString **failure
 }
 
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
-    NSString *work = [@"/var/tmp" stringByAppendingPathComponent:
+    NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
+    NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"com.moxuan1121.fontchange-%@", NSUUID.UUID.UUIDString]];
     NSString *primaryExtract = [work stringByAppendingPathComponent:@"primary"];
     NSString *optionalExtract = [work stringByAppendingPathComponent:@"optional"];
