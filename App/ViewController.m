@@ -94,7 +94,7 @@ extern char **environ;
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-        initForOpeningContentTypes:@[UTTypeZIP, UTTypeData] asCopy:YES];
+        initForOpeningContentTypes:@[UTTypeZIP] asCopy:NO];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
