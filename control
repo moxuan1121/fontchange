@@ -1,8 +1,8 @@
 Package: com.moxuan1121.fontchange
 Name: Native Localization Switch Test
-Version: 1.5.0-settings-diagnostic
+Version: 1.6.0-native-commit-test
 Architecture: iphoneos-arm64e
-Description: Loads international Settings bundles and diagnoses the native localization commit flow on iOS 15 Dopamine RootHide.
+Description: Tests the complete InternationalSettingsController language commit flow on iOS 15 Dopamine RootHide.
 Maintainer: moxuan1121
 Author: moxuan1121
 Section: Utilities

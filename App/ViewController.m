@@ -231,26 +231,49 @@ static void FCAppendMethods(NSMutableString *report, Class cls, BOOL includeAll)
     self.chineseButton.enabled = NO;
     self.resultView.text = [NSString stringWithFormat:@"正在请求系统切换到 %@…", language];
 
-    void *handle = dlopen("/System/Library/PrivateFrameworks/Preferences.framework/Preferences",
+    void *handle = dlopen("/System/Library/PreferenceBundles/InternationalSettings.bundle/InternationalSettings",
         RTLD_LAZY | RTLD_LOCAL);
-    Class selectorClass = NSClassFromString(@"PSLanguageSelector");
-    SEL setLanguage = NSSelectorFromString(@"setLanguage:fallback:");
-    if (!handle || !selectorClass || ![selectorClass instancesRespondToSelector:setLanguage]) {
+    Class controllerClass = NSClassFromString(@"InternationalSettingsController");
+    SEL setPreferredLanguages = NSSelectorFromString(@"setPreferredLanguages:");
+    SEL setLanguage = NSSelectorFromString(@"setLanguage:");
+    SEL syncPreferences = NSSelectorFromString(@"syncPreferencesAndPostNotificationForLanguageChange");
+    SEL writeConfiguration = NSSelectorFromString(@"writeLanguageAndLocaleConfigurationIfNeededWithCompletion:");
+    BOOL methodsAvailable = [controllerClass respondsToSelector:setPreferredLanguages]
+        && [controllerClass respondsToSelector:setLanguage]
+        && [controllerClass respondsToSelector:syncPreferences]
+        && [controllerClass respondsToSelector:writeConfiguration];
+    if (!handle || !controllerClass || !methodsAvailable) {
         const char *error = dlerror();
-        self.resultView.text = [NSString stringWithFormat:@"无法加载系统语言接口%s%s",
+        self.resultView.text = [NSString stringWithFormat:@"无法加载系统语言提交接口%s%s",
             error ? "：" : "", error ?: ""];
         self.japaneseButton.enabled = YES;
         self.chineseButton.enabled = YES;
         return;
     }
 
-    id selector = [[selectorClass alloc] init];
-    ((void (*)(id, SEL, id, id))objc_msgSend)(selector, setLanguage, language, fallback);
+    NSMutableArray<NSString *> *languages = [NSMutableArray arrayWithObject:language];
+    for (NSString *existing in NSLocale.preferredLanguages) {
+        if (![existing isEqualToString:language] && ![languages containsObject:existing]) {
+            [languages addObject:existing];
+        }
+    }
+    if (fallback.length > 0 && ![languages containsObject:fallback]) {
+        [languages addObject:fallback];
+    }
+
+    ((void (*)(id, SEL, id))objc_msgSend)(controllerClass, setPreferredLanguages, languages);
+    ((void (*)(id, SEL, id))objc_msgSend)(controllerClass, setLanguage, language);
+    ((void (*)(id, SEL))objc_msgSend)(controllerClass, syncPreferences);
+    void (^completion)(void) = ^{
+        NSLog(@"International language configuration write completed");
+    };
+    ((void (*)(id, SEL, id))objc_msgSend)(controllerClass, writeConfiguration, completion);
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         self.japaneseButton.enabled = YES;
         self.chineseButton.enabled = YES;
-        self.resultView.text = @"接口调用已返回，但系统没有开始切换。请把此现象告诉我。";
+        self.resultView.text = [NSString stringWithFormat:
+            @"完整提交链路已返回，但系统没有开始切换。当前首选语言：%@", NSLocale.preferredLanguages.firstObject ?: @"未知"];
     });
 }
 
