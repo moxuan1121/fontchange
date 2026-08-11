@@ -42,9 +42,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.0.0-alpha4</string>
+    <string>2.0.0-alpha5</string>
     <key>CFBundleVersion</key>
-    <string>23</string>
+    <string>24</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
