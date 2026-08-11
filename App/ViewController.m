@@ -236,10 +236,10 @@ extern char **environ;
                 return;
             }
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
+            NSString *restoreMode = sfuiOnly
+                ? @"--restore-language-and-sbreload"
+                : @"--restore-language-and-reboot";
             if ([self invokeNativeLanguage:language fallback:fallback]) {
-                NSString *restoreMode = sfuiOnly
-                    ? @"--restore-language-and-sbreload"
-                    : @"--restore-language-and-reboot";
                 [self runHelperArguments:@[restoreMode, statePath, @"8"] wait:NO];
                 // Give the language-change UI enough time to become visible before locking.
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),

@@ -408,23 +408,12 @@ static BOOL commitLanguages(NSArray<NSString *> *languages) {
     return YES;
 }
 
-static void lockDeviceNow(void) {
-    void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices",
-        RTLD_LAZY | RTLD_LOCAL);
-    if (!handle) return;
-    void (*lockDevice)(void) = dlsym(handle, "SBSLockDevice");
-    if (lockDevice) lockDevice();
-}
-
 static int restoreLanguageAndFinish(NSString *statePath, unsigned int delay, BOOL userspaceReboot) {
     pid_t background = fork();
     if (background < 0) return 72;
     if (background > 0) return 0;
     setsid();
-    unsigned int lockDelay = MIN(3, delay);
-    sleep(lockDelay);
-    lockDeviceNow();
-    if (delay > lockDelay) sleep(delay - lockDelay);
+    sleep(delay);
 
     NSDictionary *state = [NSDictionary dictionaryWithContentsOfFile:statePath];
     NSArray<NSString *> *languages = [state[@"Languages"] isKindOfClass:NSArray.class] ? state[@"Languages"] : nil;
@@ -441,7 +430,7 @@ static int restoreLanguageAndFinish(NSString *statePath, unsigned int delay, BOO
     if (waitpid(mobileChild, &restoreStatus, 0) < 0 || !WIFEXITED(restoreStatus) || WEXITSTATUS(restoreStatus) != 0) {
         _exit(77);
     }
-    sleep(10);
+    sleep(userspaceReboot ? 10 : 3);
     [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
     sync();
     if (userspaceReboot) {
@@ -449,7 +438,20 @@ static int restoreLanguageAndFinish(NSString *statePath, unsigned int delay, BOO
         _exit(runTool(launchctl, @[@"reboot", @"userspace"]));
     }
     NSString *sbreload = [NSString stringWithUTF8String:jbroot("/usr/bin/sbreload")];
-    _exit(runTool(sbreload, @[]));
+    int reloadStatus = runTool(sbreload, @[]);
+    if (reloadStatus == 0) _exit(0);
+
+    // Some RootHide setups do not ship sbreload at /usr/bin. Killing
+    // SpringBoard is a safe fallback because launchd immediately respawns it.
+    NSString *killall = [NSString stringWithUTF8String:jbroot("/usr/bin/killall")];
+    int killStatus = runTool(killall, @[@"-9", @"SpringBoard"]);
+    if (killStatus != 0) {
+        killall = [NSString stringWithUTF8String:jbroot("/bin/killall")];
+        killStatus = runTool(killall, @[@"-9", @"SpringBoard"]);
+    }
+    writeReport([NSString stringWithFormat:
+        @"语言已恢复；sbreload 返回 %d，SpringBoard 回退重启返回 %d。", reloadStatus, killStatus]);
+    _exit(killStatus);
 }
 
 int main(int argc, char *argv[]) {
