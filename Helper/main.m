@@ -178,11 +178,10 @@ static BOOL copyFile(NSString *source, NSString *destination, NSString **failure
 }
 
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
-    NSString *work = [@"/var/mobile/Library/Caches" stringByAppendingPathComponent:
+    NSString *work = [@"/var/tmp" stringByAppendingPathComponent:
         [NSString stringWithFormat:@"com.moxuan1121.fontchange-%@", NSUUID.UUID.UUIDString]];
     NSString *primaryExtract = [work stringByAppendingPathComponent:@"primary"];
     NSString *optionalExtract = [work stringByAppendingPathComponent:@"optional"];
-    [NSFileManager.defaultManager createDirectoryAtPath:primaryExtract withIntermediateDirectories:YES attributes:nil error:nil];
 
     NSString *failure = nil;
     NSString *primaryRoot = nil;
@@ -190,12 +189,29 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
     NSString *target = nil;
     BOOL usesBindfs = NO;
+    NSError *directoryError = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
+                                 withIntermediateDirectories:YES
+                                                  attributes:nil
+                                                       error:&directoryError]) {
+        failure = [NSString stringWithFormat:@"无法创建临时解压目录 %@：%@", primaryExtract,
+            directoryError.localizedDescription ?: @"未知错误"];
+        goto fail;
+    }
     if (!extractArchive(primaryZip, primaryExtract, &failure)) goto fail;
     primaryRoot = findPrimaryRoot(primaryExtract, &failure);
     if (!primaryRoot) goto fail;
 
     if (![optionalZip isEqualToString:@"-"]) {
-        [NSFileManager.defaultManager createDirectoryAtPath:optionalExtract withIntermediateDirectories:YES attributes:nil error:nil];
+        directoryError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtPath:optionalExtract
+                                     withIntermediateDirectories:YES
+                                                      attributes:nil
+                                                           error:&directoryError]) {
+            failure = [NSString stringWithFormat:@"无法创建可选包解压目录 %@：%@", optionalExtract,
+                directoryError.localizedDescription ?: @"未知错误"];
+            goto fail;
+        }
         if (!extractArchive(optionalZip, optionalExtract, &failure)) goto fail;
         optionalSFUI = findOptionalSFUI(optionalExtract, &failure);
         if (!optionalSFUI) goto fail;
