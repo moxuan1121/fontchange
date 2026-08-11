@@ -215,20 +215,16 @@ static BOOL copyFile(NSString *source, NSString *destination, NSString **failure
     return status == 0;
 }
 
-static BOOL hasZqbbPreference(void) {
-    NSMutableArray<NSString *> *roots = [NSMutableArray arrayWithObject:@"/var/mobile"];
-    NSString *jailbreakMobile = [NSString stringWithUTF8String:jbroot("/var/mobile")];
-    if (jailbreakMobile.length && ![roots containsObject:jailbreakMobile]) {
-        [roots addObject:jailbreakMobile];
-    }
-    for (NSString *root in roots) {
-        NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:root];
-        for (NSString *relative in enumerator) {
-            NSString *name = relative.lastPathComponent.lowercaseString;
-            if ([name containsString:@"zqbb"] && [name hasSuffix:@".plist"]) return YES;
-        }
-    }
-    return NO;
+static BOOL hasZqbbFontMountPreference(void) {
+    NSString *rootHidePath = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
+    NSDictionary *rootHideConfig = [NSDictionary dictionaryWithContentsOfFile:rootHidePath];
+    NSArray *rootHidePaths = [rootHideConfig[@"path"] isKindOfClass:NSArray.class] ? rootHideConfig[@"path"] : nil;
+    if ([rootHidePaths containsObject:@"/System/Library/Fonts"]) return YES;
+
+    NSDictionary *rootlessConfig = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/newFakePath.plist"];
+    NSArray *rootlessPaths = [rootlessConfig[@"path"] isKindOfClass:NSArray.class] ? rootlessConfig[@"path"] : nil;
+    return [rootlessPaths containsObject:@"/System/Library/Fonts"];
 }
 
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
@@ -278,7 +274,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         if (!optionalSFUI) goto fail;
     }
 
-    prefersMnt = hasZqbbPreference();
+    prefersMnt = hasZqbbFontMountPreference();
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
     if (prefersMnt && mntTarget) target = mntTarget;
