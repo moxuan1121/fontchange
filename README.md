@@ -10,12 +10,15 @@
 
 程序保留所有 `Caches` 目录本身，并明确跳过 RootHide 的隐藏 `.jbroot-*` 目录。
 
+同时保留系统用户缓存根目录中的定位与隐私授权条目，包括 `locationd`、CoreLocation、TCC、PrivacyAccounting、routined 与 GeoServices，避免重置 App 的定位授权。
+
 ## 不会访问
 
 - `Documents`
 - `Library/Preferences`
 - 字体文件
 - 账号与登录数据
+- 定位与隐私授权缓存
 - 照片和下载文件
 
 清理完成后执行一次 `launchctl reboot userspace`。部分 App 下次打开时需要重新加载图片、网页或其他可重建内容。

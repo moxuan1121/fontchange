@@ -19,7 +19,7 @@ static int rebootUserspace(void) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 71;
 }
 
-static NSUInteger clearDirectoryContents(NSString *path) {
+static NSUInteger clearDirectoryContentsExcluding(NSString *path, NSSet<NSString *> *excludedNames) {
     NSFileManager *manager = NSFileManager.defaultManager;
     BOOL isDirectory = NO;
     if (![manager fileExistsAtPath:path isDirectory:&isDirectory] || !isDirectory) return 0;
@@ -33,6 +33,10 @@ static NSUInteger clearDirectoryContents(NSString *path) {
 
     NSUInteger removed = 0;
     for (NSString *child in children) {
+        if ([excludedNames containsObject:child.lowercaseString]) {
+            NSLog(@"Preserving protected cache entry %@", child);
+            continue;
+        }
         NSString *childPath = [path stringByAppendingPathComponent:child];
         NSError *removeError = nil;
         if ([manager removeItemAtPath:childPath error:&removeError]) {
@@ -42,6 +46,10 @@ static NSUInteger clearDirectoryContents(NSString *path) {
         }
     }
     return removed;
+}
+
+static NSUInteger clearDirectoryContents(NSString *path) {
+    return clearDirectoryContentsExcluding(path, [NSSet set]);
 }
 
 static NSUInteger clearCachesInsideContainers(NSString *containersRoot) {
@@ -67,8 +75,22 @@ static NSUInteger clearCachesInsideContainers(NSString *containersRoot) {
 static NSUInteger clearICleanerStyleCaches(void) {
     NSUInteger removed = 0;
 
+    // Preserve authorization and privacy state maintained by location/TCC services.
+    NSSet<NSString *> *protectedMobileCaches = [NSSet setWithArray:@[
+        @"locationd",
+        @"com.apple.locationd",
+        @"com.apple.corelocation",
+        @"com.apple.tccd",
+        @"tccd",
+        @"com.apple.privacyaccounting",
+        @"com.apple.routined",
+        @"routined",
+        @"geoservices",
+        @"com.apple.geoservices",
+    ]];
+
     // System/user caches. Only child entries are removed; the cache roots remain.
-    removed += clearDirectoryContents(@"/var/mobile/Library/Caches");
+    removed += clearDirectoryContentsExcluding(@"/var/mobile/Library/Caches", protectedMobileCaches);
     removed += clearDirectoryContents(@"/var/root/Library/Caches");
 
     // Per-app and shared container caches. Documents and Preferences are never traversed.
