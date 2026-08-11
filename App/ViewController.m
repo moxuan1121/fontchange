@@ -28,6 +28,7 @@ extern char **environ;
 
     UILabel *titleLabel = [self label:@"一键更换字体" size:32 color:UIColor.labelColor];
     titleLabel.font = [UIFont systemFontOfSize:32 weight:UIFontWeightBold];
+    UILabel *featureLabel = [self label:@"通过原生切换语言环境，深度刷新系统字体缓存。" size:15 color:UIColor.secondaryLabelColor];
     UILabel *formatLabel = [self label:@"压缩包仅支持 ZIP 格式，暂不支持 7z、RAR。" size:13 color:UIColor.tertiaryLabelColor];
     UIButton *primaryButton = [self button:@"选择主要字体包（必选）" action:@selector(selectPrimary)];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
@@ -44,13 +45,14 @@ extern char **environ;
     self.runButton.backgroundColor = UIColor.systemGreenColor;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleLabel, formatLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
+        titleLabel, featureLabel, formatLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 14;
     [stack setCustomSpacing:8 afterView:titleLabel];
+    [stack setCustomSpacing:6 afterView:featureLabel];
     [stack setCustomSpacing:26 afterView:formatLabel];
     [stack setCustomSpacing:8 afterView:primaryButton];
     [stack setCustomSpacing:8 afterView:optionalButton];
