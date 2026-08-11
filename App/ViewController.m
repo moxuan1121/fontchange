@@ -104,6 +104,40 @@ extern char **environ;
 - (void)selectPrimary { [self presentPickerForSlot:1]; }
 - (void)selectOptional { [self presentPickerForSlot:2]; }
 
+- (void)handleExternalURL:(NSURL *)url {
+    if (!url) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *extension = url.pathExtension.lowercaseString;
+        if ([extension isEqualToString:@"ttc"]) {
+            self.pickingSlot = 2;
+            [self importPickedURL:url];
+            return;
+        }
+        if (![extension isEqualToString:@"zip"]) {
+            self.statusLabel.text = @"外部导入仅支持 ZIP 或 TTC 文件。";
+            return;
+        }
+        UIAlertController *alert = [UIAlertController
+            alertControllerWithTitle:@"导入字体文件"
+                             message:@"请选择这个 ZIP 的用途。"
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"作为主要字体包"
+                                                style:UIAlertActionStyleDefault
+                                              handler:^(__unused UIAlertAction *action) {
+            self.pickingSlot = 1;
+            [self importPickedURL:url];
+        }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"用于 SFUISoft"
+                                                style:UIAlertActionStyleDefault
+                                              handler:^(__unused UIAlertAction *action) {
+            self.pickingSlot = 2;
+            [self importPickedURL:url];
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
+    });
+}
+
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
     NSArray<UTType *> *types = @[UTTypeZIP];
