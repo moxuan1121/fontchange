@@ -262,9 +262,13 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     target = validFontsTarget(@"/mnt/System/Library/Fonts");
     if (!target) {
         NSString *mountDetails = nil;
-        int mountStatus = runToolCapturingOutput(mountBindfs,
-            @[@"--copy", @"/System/Library/Fonts"], &mountDetails);
-        target = validFontsTarget(@"/bindfs/System/Library/Fonts");
+        NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
+        NSString *copyCommand = [NSString stringWithFormat:@"\"%@\" --copy  /System/Library/Fonts", mountBindfs];
+        int mountStatus = runToolCapturingOutput(shell, @[@"-c", copyCommand], &mountDetails);
+        for (NSUInteger attempt = 0; attempt < 10 && !target; attempt++) {
+            target = validFontsTarget(@"/bindfs/System/Library/Fonts");
+            if (!target) usleep(300000);
+        }
         if (!target) {
             failure = [NSString stringWithFormat:@"mount_bindfs --copy 后仍未生成有效字体目录（%d）：%@",
                 mountStatus, mountDetails.length ? mountDetails : @"命令没有返回错误详情"];
@@ -278,8 +282,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     }
 
     if (usesBindfs) {
-        saveStatus = runToolCapturingOutput(mountBindfs,
-            @[@"-s", @"/System/Library/Fonts"], &saveDetails);
+        NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
+        NSString *saveCommand = [NSString stringWithFormat:@"\"%@\" -s /System/Library/Fonts", mountBindfs];
+        saveStatus = runToolCapturingOutput(shell, @[@"-c", saveCommand], &saveDetails);
         if (saveStatus != 0) {
             saveNote = [NSString stringWithFormat:
                 @"；警告：mount_bindfs -s 返回 %d（%@），不影响本次字体覆盖", saveStatus,
