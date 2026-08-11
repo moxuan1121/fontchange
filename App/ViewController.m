@@ -233,7 +233,8 @@ extern char **environ;
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
             if ([self invokeNativeLanguage:language fallback:fallback]) {
                 [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                // Give the language-change UI enough time to become visible before locking.
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                     dispatch_get_main_queue(), ^{
                         [self turnScreenOff];
                     });

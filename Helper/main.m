@@ -404,7 +404,7 @@ static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     if (background < 0) return 72;
     if (background > 0) return 0;
     setsid();
-    unsigned int lockDelay = MIN(2, delay);
+    unsigned int lockDelay = MIN(3, delay);
     sleep(lockDelay);
     lockDeviceNow();
     if (delay > lockDelay) sleep(delay - lockDelay);
