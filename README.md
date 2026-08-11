@@ -1,38 +1,28 @@
-# Font Language Refresh for RootHide
+# Font Cache Refresh — iCleaner Mode
 
-一款面向 Dopamine RootHide 的 iOS 15+ 桌面应用，用两阶段语言切换刷新系统字体缓存。
+面向 Dopamine RootHide 与 iOS 15+ 的全局可重建缓存清理测试版。
 
-## 工作流程
+## 清理范围
 
-1. 保存当前 `AppleLanguages` 与 `AppleLocale`。
-2. 临时切换到日语 `ja / ja_JP`。
-3. 执行第一次 userspace reboot。
-4. LaunchDaemon 自动恢复用户原始语言设置。
-5. 执行第二次 userspace reboot，并清除恢复状态。
+- `/var/mobile/Library/Caches/` 的内容
+- `/var/root/Library/Caches/` 的内容
+- 每个普通 App、系统 App、App Group 与 System Group 容器中的 `Library/Caches/` 内容
 
-恢复失败时状态文件会保留，App 会显示“恢复原语言并重启”按钮供手动重试。
+程序保留所有 `Caches` 目录本身，并明确跳过 RootHide 的隐藏 `.jbroot-*` 目录。
+
+## 不会访问
+
+- `Documents`
+- `Library/Preferences`
+- 字体文件
+- 账号与登录数据
+- 照片和下载文件
+
+清理完成后执行一次 `launchctl reboot userspace`。部分 App 下次打开时需要重新加载图片、网页或其他可重建内容。
 
 ## 兼容性
 
 - iOS 15.0+
 - Dopamine RootHide
-- RootHide `iphoneos-arm64e` Debian 包
-- App/helper 使用 arm64 Mach-O，避免 iOS 15 的 arm64e ABI 不兼容
-- 已针对 iPhone 13 Pro Max、iOS 15.6 的目标环境设计
-
-## 构建
-
-项目使用官方 RootHide Theos：
-
-```sh
-export THEOS=~/theos
-make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
-```
-
-GitHub Actions 也会自动构建，并上传 `.deb` artifact。
-
-## 安装与风险
-
-通过 Sileo 安装构建生成的 RootHide `.deb`。开始刷新前，请保存所有 App 中未保存的数据；完整流程会进行两次用户空间重启。
-
-这是首个真机测试版本。建议在确认语言恢复正常后再用于日常操作。
+- Debian 包：`iphoneos-arm64e`
+- App/helper：`arm64`

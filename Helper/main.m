@@ -1,8 +1,6 @@
 #import <Foundation/Foundation.h>
-#import "../Shared/LanguagePreferences.h"
 
 #import <roothide.h>
-#import <grp.h>
 #import <spawn.h>
 #import <sys/wait.h>
 #import <unistd.h>
@@ -21,6 +19,72 @@ static int rebootUserspace(void) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 71;
 }
 
+static NSUInteger clearDirectoryContents(NSString *path) {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    BOOL isDirectory = NO;
+    if (![manager fileExistsAtPath:path isDirectory:&isDirectory] || !isDirectory) return 0;
+
+    NSError *listingError = nil;
+    NSArray<NSString *> *children = [manager contentsOfDirectoryAtPath:path error:&listingError];
+    if (!children) {
+        NSLog(@"Unable to list cache directory %@: %@", path, listingError);
+        return 0;
+    }
+
+    NSUInteger removed = 0;
+    for (NSString *child in children) {
+        NSString *childPath = [path stringByAppendingPathComponent:child];
+        NSError *removeError = nil;
+        if ([manager removeItemAtPath:childPath error:&removeError]) {
+            removed++;
+        } else {
+            NSLog(@"Unable to remove cache item %@: %@", childPath, removeError);
+        }
+    }
+    return removed;
+}
+
+static NSUInteger clearCachesInsideContainers(NSString *containersRoot) {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSError *error = nil;
+    NSArray<NSString *> *containers = [manager contentsOfDirectoryAtPath:containersRoot error:&error];
+    if (!containers) {
+        NSLog(@"Unable to list container root %@: %@", containersRoot, error);
+        return 0;
+    }
+
+    NSUInteger removed = 0;
+    for (NSString *container in containers) {
+        // Never descend into RootHide's hidden .jbroot-* directories.
+        if ([container hasPrefix:@"."]) continue;
+        NSString *cachePath = [[[containersRoot stringByAppendingPathComponent:container]
+            stringByAppendingPathComponent:@"Library"] stringByAppendingPathComponent:@"Caches"];
+        removed += clearDirectoryContents(cachePath);
+    }
+    return removed;
+}
+
+static NSUInteger clearICleanerStyleCaches(void) {
+    NSUInteger removed = 0;
+
+    // System/user caches. Only child entries are removed; the cache roots remain.
+    removed += clearDirectoryContents(@"/var/mobile/Library/Caches");
+    removed += clearDirectoryContents(@"/var/root/Library/Caches");
+
+    // Per-app and shared container caches. Documents and Preferences are never traversed.
+    NSArray<NSString *> *containerRoots = @[
+        @"/var/mobile/Containers/Data/Application",
+        @"/var/mobile/Containers/Data/System",
+        @"/var/mobile/Containers/Shared/AppGroup",
+        @"/var/mobile/Containers/Shared/SystemGroup",
+    ];
+    for (NSString *root in containerRoots) {
+        removed += clearCachesInsideContainers(root);
+    }
+
+    return removed;
+}
+
 int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (geteuid() != 0) {
@@ -29,41 +93,14 @@ int main(int argc, char *argv[]) {
         }
 
         NSString *argument = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"";
-        if ([argument isEqualToString:@"--reboot"]) {
+        if ([argument isEqualToString:@"--clear-all-caches"]) {
+            NSUInteger removed = clearICleanerStyleCaches();
+            NSLog(@"Font cache refresh removed %lu cache entries", (unsigned long)removed);
             sync();
             return rebootUserspace();
         }
 
-        if ([argument isEqualToString:@"--resume"]) {
-            if (![NSFileManager.defaultManager fileExistsAtPath:FCStatePath()]) return 0;
-            sleep(8);
-
-            pid_t restorePID = fork();
-            if (restorePID < 0) return 72;
-            if (restorePID == 0) {
-                setgroups(0, NULL);
-                if (setgid(501) != 0 || setuid(501) != 0) _exit(73);
-
-                NSError *error = nil;
-                if (!FCRestoreSavedLanguage(&error)) {
-                    NSLog(@"Language restore failed: %@", error);
-                    _exit(1);
-                }
-                _exit(0);
-            }
-
-            int restoreStatus = 0;
-            if (waitpid(restorePID, &restoreStatus, 0) < 0 ||
-                !WIFEXITED(restoreStatus) || WEXITSTATUS(restoreStatus) != 0) {
-                return 1;
-            }
-
-            sync();
-            sleep(2);
-            return rebootUserspace();
-        }
-
-        NSLog(@"Usage: fontchange-helper --reboot|--resume");
+        NSLog(@"Usage: fontchange-helper --clear-all-caches");
         return 64;
     }
 }
