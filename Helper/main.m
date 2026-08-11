@@ -360,12 +360,22 @@ static BOOL commitLanguages(NSArray<NSString *> *languages) {
     return YES;
 }
 
+static void lockDeviceNow(void) {
+    void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices",
+        RTLD_LAZY | RTLD_LOCAL);
+    if (!handle) return;
+    void (*lockDevice)(void) = dlsym(handle, "SBSLockDevice");
+    if (lockDevice) lockDevice();
+}
+
 static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     pid_t background = fork();
     if (background < 0) return 72;
     if (background > 0) return 0;
     setsid();
+    lockDeviceNow();
     sleep(delay);
+    lockDeviceNow();
 
     NSDictionary *state = [NSDictionary dictionaryWithContentsOfFile:statePath];
     NSArray<NSString *> *languages = [state[@"Languages"] isKindOfClass:NSArray.class] ? state[@"Languages"] : nil;
@@ -382,6 +392,7 @@ static int restoreLanguageAndReboot(NSString *statePath, unsigned int delay) {
     if (waitpid(mobileChild, &restoreStatus, 0) < 0 || !WIFEXITED(restoreStatus) || WEXITSTATUS(restoreStatus) != 0) {
         _exit(77);
     }
+    lockDeviceNow();
     sleep(10);
     [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
     sync();

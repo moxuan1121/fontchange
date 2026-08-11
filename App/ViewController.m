@@ -201,6 +201,7 @@ extern char **environ;
                 return;
             }
             NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
+            [self turnScreenOff];
             if ([self invokeNativeLanguage:language fallback:fallback]) {
                 [self runHelperArguments:@[@"--restore-language-and-reboot", statePath, @"8"] wait:NO];
                 [self turnScreenOff];
