@@ -227,8 +227,13 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.statusLabel.layer.masksToBounds = YES;
     self.statusLabel.layer.borderWidth = 0.5;
     self.statusLabel.layer.borderColor = UIColor.separatorColor.CGColor;
-    [self.statusLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
-    [self.statusLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
+    [self.statusLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+    [self.statusLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+
+    UIView *bottomSpacer = [[UIView alloc] init];
+    bottomSpacer.backgroundColor = UIColor.clearColor;
+    [bottomSpacer setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
+    [bottomSpacer setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
 
     self.runButton = [self button:@"检查并开始执行" action:@selector(confirmRun)];
     self.runButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
@@ -236,7 +241,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         titleLabel, self.mountLabel, self.previewView, sectionLabel,
         primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
-        self.statusLabel, self.runButton
+        self.statusLabel, bottomSpacer, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
@@ -260,7 +265,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [optionalButton.heightAnchor constraintEqualToConstant:54],
         [self.previewView.heightAnchor constraintEqualToConstant:132],
         [self.clearButton.heightAnchor constraintEqualToConstant:42],
-        [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [self.statusLabel.heightAnchor constraintEqualToConstant:64],
+        [bottomSpacer.heightAnchor constraintGreaterThanOrEqualToConstant:0],
         [self.runButton.heightAnchor constraintEqualToConstant:56],
     ]];
     for (UIButton *selectionButton in @[primaryButton, optionalButton]) {
