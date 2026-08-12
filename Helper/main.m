@@ -550,25 +550,49 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
     if (prefersMnt && mntTarget && !sfuiOnly) {
         NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-        int unmountStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
-        if (unmountStatus != 0) {
-            failure = [NSString stringWithFormat:@"卸载现有 mnt 字体目录失败（%d），为避免误删已停止。", unmountStatus];
-            goto fail;
-        }
+        BOOL genericMount = hasGenericMountFontPreference();
+        NSArray<NSString *> *unmountArguments = genericMount
+            ? @[@"internal", @"font_unmount"]
+            : @[@"internal", @"unmount", @"/System/Library/Fonts"];
+        NSArray<NSString *> *mountArguments = genericMount
+            ? @[@"internal", @"font_mount"]
+            : @[@"internal", @"mount", @"/System/Library/Fonts"];
+        int unmountStatus = 0;
+        int rmStatus = 0;
         NSError *removeError = nil;
-        if (![NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError] &&
-            [NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
-            failure = [NSString stringWithFormat:@"删除旧 mnt 字体副本失败：%@", removeError.localizedDescription ?: @"未知错误"];
+        BOOL removed = NO;
+        for (NSUInteger attempt = 0; attempt < 12; attempt++) {
+            unmountStatus = runTool(jbctl, unmountArguments);
+            usleep(250000);
+            removeError = nil;
+            if ([NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError] ||
+                ![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
+                removed = YES;
+                break;
+            }
+            NSString *rm = [NSString stringWithUTF8String:jbroot("/bin/rm")];
+            rmStatus = runTool(rm, @[@"-rf", @"--", mntTarget]);
+            if (![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
+                removed = YES;
+                break;
+            }
+        }
+        if (!removed) {
+            failure = [NSString stringWithFormat:
+                @"无法清理现有 mnt 字体快照。卸载=%d，删除=%d，文件错误=%ld（%@）。",
+                unmountStatus, rmStatus, (long)removeError.code,
+                removeError.localizedDescription ?: @"未知错误"];
             goto fail;
         }
-        int mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-        for (NSUInteger attempt = 0; attempt < 20; attempt++) {
+        int mountStatus = runTool(jbctl, mountArguments);
+        mntTarget = nil;
+        for (NSUInteger attempt = 0; attempt < 30; attempt++) {
             mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
             if (mntTarget) break;
             usleep(300000);
         }
-        if (mountStatus != 0 || !mntTarget) {
-            failure = [NSString stringWithFormat:@"zqbb 重新创建原生 mnt 字体副本失败（%d）。", mountStatus];
+        if (!mntTarget) {
+            failure = [NSString stringWithFormat:@"GenericMount 未重新生成有效 mnt 字体副本（命令状态 %d）。", mountStatus];
             goto fail;
         }
         target = mntTarget;

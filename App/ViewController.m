@@ -752,6 +752,15 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             ? @[@"--restore-system-fonts"] : @[@"--install", primary, optional];
         int status = [self runHelperArguments:helperArguments wait:YES];
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (status != 0) {
+                self.runButton.enabled = YES;
+                self.runButton.backgroundColor = UIColor.systemRedColor;
+                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
+                NSString *report = [NSString stringWithContentsOfFile:@"/var/mobile/Documents/fontchange_last_result.txt"
+                    encoding:NSUTF8StringEncoding error:nil];
+                self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
+                return;
+            }
             [self cleanupOldImports];
             self.primaryPath = nil;
             self.optionalPath = nil;
@@ -762,15 +771,6 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             self.primaryLabel.text = @"尚未选择";
             self.optionalLabel.text = @"跟随全局字体包 · 自动读取 SFUISoft.ttc";
             [self updateClearButtonState];
-            if (status != 0) {
-                self.runButton.enabled = YES;
-                self.runButton.backgroundColor = UIColor.systemRedColor;
-                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
-                NSString *report = [NSString stringWithContentsOfFile:@"/var/mobile/Documents/fontchange_last_result.txt"
-                    encoding:NSUTF8StringEncoding error:nil];
-                self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
-                return;
-            }
             self.statusLabel.text = restoringSystemFonts
                 ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存\n• 即将重启用户空间…"
                 : sfuiOnly
