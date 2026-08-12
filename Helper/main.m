@@ -287,6 +287,11 @@ static NSString *ensureSelfContainedFonts(NSString **failure) {
                 details.length ? details : @"没有错误详情"];
             return nil;
         }
+        int stillMounted = runTool(tool, @[@"status"]);
+        if (stillMounted == 0) {
+            if (failure) *failure = @"字体映射卸载后仍然存在，已停止创建快照；不会读取 .jbroot/mount 中的字体副本。";
+            return nil;
+        }
         NSError *removeError = nil;
         [NSFileManager.defaultManager removeItemAtPath:mirror error:&removeError];
         NSError *createError = nil;
