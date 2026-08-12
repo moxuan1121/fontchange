@@ -606,6 +606,24 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         goto fail;
     }
     if (!target) {
+        // Unknown environments get one conservative mnt attempt first. Some
+        // Dopamine variants expose jbctl mounting even when no preference
+        // plist or pre-existing /mnt snapshot can be detected.
+        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+        int mntMountStatus = 127;
+        if ([NSFileManager.defaultManager isExecutableFileAtPath:jbctl]) {
+            mntMountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
+            for (NSUInteger attempt = 0; attempt < 15; attempt++) {
+                mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
+                if (mntTarget) break;
+                usleep(300000);
+            }
+            if (mntTarget) {
+                target = mntTarget;
+                prefersMnt = YES;
+            }
+        }
+        if (!target) {
         NSString *mountDetails = nil;
         NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
         NSString *copyCommand = [NSString stringWithFormat:@"\"%@\" --copy  /System/Library/Fonts", mountBindfs];
@@ -620,9 +638,12 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         } else if (mntTarget) {
             target = mntTarget;
         } else {
-            failure = [NSString stringWithFormat:@"mount_bindfs --copy 后仍未生成有效字体目录（%d）：%@",
-                mountStatus, mountDetails.length ? mountDetails : @"命令没有返回错误详情"];
+            failure = [NSString stringWithFormat:
+                @"自动挂载失败：mnt=%d；mount_bindfs=%d（%@）。",
+                mntMountStatus, mountStatus,
+                mountDetails.length ? mountDetails : @"没有错误详情"];
             goto fail;
+        }
         }
     }
 

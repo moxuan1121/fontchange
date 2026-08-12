@@ -187,6 +187,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 @property(nonatomic, strong) UIButton *clearButton;
 @property(nonatomic, strong) UIButton *restoreButton;
 @property(nonatomic, strong) FCFontPreviewView *previewView;
+@property(nonatomic, strong) UIView *processingCurtain;
 @property(nonatomic) NSUInteger previewGeneration;
 @property(nonatomic) BOOL restoringSystemFonts;
 @end
@@ -725,12 +726,38 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [self runWithTemporaryLanguage:temporary originalLanguages:originalLanguages];
 }
 
-- (void)turnScreenOff {
-    void *handle = dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices",
-        RTLD_LAZY | RTLD_LOCAL);
-    if (!handle) return;
-    void (*lockDevice)(void) = dlsym(handle, "SBSLockDevice");
-    if (lockDevice) lockDevice();
+- (void)showProcessingCurtain {
+    if (self.processingCurtain) return;
+    UIView *curtain = [[UIView alloc] init];
+    curtain.translatesAutoresizingMaskIntoConstraints = NO;
+    curtain.backgroundColor = UIColor.systemBackgroundColor;
+    curtain.userInteractionEnabled = YES;
+
+    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc]
+        initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
+    [spinner startAnimating];
+    UILabel *title = [self label:@"正在刷新字体环境" size:23 color:UIColor.labelColor];
+    title.font = [UIFont systemFontOfSize:23 weight:UIFontWeightBold];
+    UILabel *message = [self label:@"正在切换语言并准备重启用户空间\n请勿操作设备" size:15
+                               color:UIColor.secondaryLabelColor];
+    UIStackView *content = [[UIStackView alloc] initWithArrangedSubviews:@[spinner, title, message]];
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    content.axis = UILayoutConstraintAxisVertical;
+    content.alignment = UIStackViewAlignmentCenter;
+    content.spacing = 14;
+    [curtain addSubview:content];
+    [self.view addSubview:curtain];
+    [NSLayoutConstraint activateConstraints:@[
+        [curtain.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [curtain.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [curtain.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [curtain.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [content.centerXAnchor constraintEqualToAnchor:curtain.centerXAnchor],
+        [content.centerYAnchor constraintEqualToAnchor:curtain.centerYAnchor],
+        [content.leadingAnchor constraintGreaterThanOrEqualToAnchor:curtain.leadingAnchor constant:30],
+        [content.trailingAnchor constraintLessThanOrEqualToAnchor:curtain.trailingAnchor constant:-30],
+    ]];
+    self.processingCurtain = curtain;
 }
 
 - (void)runWithTemporaryLanguage:(NSString *)language originalLanguages:(NSArray<NSString *> *)originalLanguages {
@@ -811,13 +838,9 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
                     @"后台语言恢复及用户空间重启任务启动失败（%d），已停止语言切换。", spawnStatus];
                 return;
             }
+            [self showProcessingCurtain];
             if ([self invokeNativeLanguage:language fallback:fallback]) {
                 self.statusLabel.text = @"正在清理字体缓存，即将重启用户空间。";
-                // Give the language-change UI enough time to become visible before locking.
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-                    dispatch_get_main_queue(), ^{
-                        [self turnScreenOff];
-                    });
             } else {
                 self.statusLabel.text = @"语言切换接口未响应；后台任务仍会恢复原语言并重启用户空间。";
             }
