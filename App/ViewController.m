@@ -439,13 +439,32 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         alertControllerWithTitle:(canCreateMnt ? @"检测到 mnt 挂载环境" : @"未检测到字体挂载环境")
                          message:(canCreateMnt
                             ? @"真皮版多巴胺的 Fonts 挂载尚未创建，可由本 App 自动创建原生 mnt 字体副本并登记下次越狱自动挂载。"
-                            : @"当前未检测到 mnt 或 bindfs 字体目录。请使用真皮版多巴胺提供的 mnt 挂载功能，或安装并配置 mount_bindfs 后再进行字体更换。")
+                            : @"当前未检测到 mnt 或 bindfs 字体目录。官方 Dopamine 用户可前往 Sileo 安装 mount_bindfs (Dopamine)。\n\n软件源：https://invalidunit.github.io/repo/")
                   preferredStyle:UIAlertControllerStyleAlert];
     if (canCreateMnt) {
         [alert addAction:[UIAlertAction actionWithTitle:@"自动创建 mnt 字体挂载"
                                                 style:UIAlertActionStyleDefault
                                               handler:^(__unused UIAlertAction *action) {
             [self createMntFontsMount];
+        }]];
+    } else {
+        [alert addAction:[UIAlertAction actionWithTitle:@"前往 Sileo 安装"
+                                                style:UIAlertActionStyleDefault
+                                              handler:^(__unused UIAlertAction *action) {
+            NSURL *url = [NSURL URLWithString:@"sileo://package/com.nan.bindfs"];
+            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:^(BOOL success) {
+                if (success) return;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIAlertController *failureAlert = [UIAlertController
+                        alertControllerWithTitle:@"无法打开 Sileo"
+                                         message:@"请先在 Sileo 添加软件源 https://invalidunit.github.io/repo/，然后搜索并安装 mount_bindfs (Dopamine)。"
+                                  preferredStyle:UIAlertControllerStyleAlert];
+                    [failureAlert addAction:[UIAlertAction actionWithTitle:@"确定"
+                                                                    style:UIAlertActionStyleCancel
+                                                                  handler:nil]];
+                    [self presentViewController:failureAlert animated:YES completion:nil];
+                });
+            }];
         }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"不再提示"
