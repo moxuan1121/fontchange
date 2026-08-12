@@ -635,26 +635,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     }
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
-    if (!sfuiOnly && [target containsString:@"/mnt/"]) {
-        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-        int unmountStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
-        if (unmountStatus != 0) {
-            failure = [NSString stringWithFormat:@"字体已覆盖，但卸载 mnt 以重新映射失败（%d）。", unmountStatus];
-            goto fail;
-        }
-        int mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-        NSString *remountedTarget = nil;
-        for (NSUInteger attempt = 0; attempt < 20; attempt++) {
-            remountedTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-            if (remountedTarget) break;
-            usleep(300000);
-        }
-        if (mountStatus != 0 || !remountedTarget) {
-            failure = [NSString stringWithFormat:@"字体已覆盖，但重新挂载 mnt 失败（%d）。", mountStatus];
-            goto fail;
-        }
-        target = remountedTarget;
-    }
+    // The mnt snapshot was already rebuilt from the original system fonts
+    // before the custom files were copied. Remounting again here would create
+    // another pristine snapshot and silently discard the just-applied fonts.
     if (sfuiOnly && [target containsString:@"/bindfs/"]) {
         mountScheme = @"bindfs（复用现有目录，未执行 --copy 或 -s）";
     } else if ([target containsString:@"/bindfs/"]) {
