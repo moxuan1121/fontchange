@@ -202,18 +202,34 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     UILabel *titleLabel = [self label:@"FontChange" size:36 color:UIColor.labelColor];
     titleLabel.font = [UIFont systemFontOfSize:36 weight:UIFontWeightHeavy];
     titleLabel.textAlignment = NSTextAlignmentLeft;
-    self.mountLabel = [self label:@"当前挂载模式：正在检测…" size:13 color:UIColor.secondaryLabelColor];
+    self.restoreButton = [self button:@"" action:@selector(confirmRestoreSystemFonts)];
+    self.restoreButton.accessibilityLabel = @"恢复系统字体";
+    self.restoreButton.backgroundColor = [UIColor colorWithRed:0.94 green:0.32 blue:0.25 alpha:1.0];
+    self.restoreButton.layer.cornerRadius = 21;
+    self.restoreButton.layer.shadowOpacity = 0.08;
+    [self.restoreButton setImage:[UIImage systemImageNamed:@"arrow.counterclockwise"] forState:UIControlStateNormal];
+    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, self.restoreButton]];
+    header.axis = UILayoutConstraintAxisHorizontal;
+    header.alignment = UIStackViewAlignmentCenter;
+    header.distribution = UIStackViewDistributionEqualSpacing;
+
+    self.mountLabel = [self label:@"● 正在检测挂载模式…" size:12 color:UIColor.secondaryLabelColor];
+    self.mountLabel.backgroundColor = [UIColor colorWithRed:0.96 green:0.91 blue:0.82 alpha:1.0];
+    self.mountLabel.layer.cornerRadius = 14;
+    self.mountLabel.layer.masksToBounds = YES;
     [self.mountLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
     [self.mountLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
     UILabel *sectionLabel = [self label:@"选择字体方案" size:23 color:UIColor.labelColor];
     sectionLabel.font = [UIFont systemFontOfSize:23 weight:UIFontWeightBold];
     sectionLabel.textAlignment = NSTextAlignmentLeft;
-    UIButton *primaryButton = [self button:@"主要字体包（全局覆盖，可选）" action:@selector(selectPrimary)];
+    UIButton *primaryButton = [self button:@"全局字体包" action:@selector(selectPrimary)];
     [primaryButton setImage:[UIImage systemImageNamed:@"archivebox.fill"] forState:UIControlStateNormal];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
-    UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
+    self.primaryLabel.textAlignment = NSTextAlignmentLeft;
+    UIButton *optionalButton = [self button:@"锁屏字体（SFUISoft）" action:@selector(selectOptional)];
     [optionalButton setImage:[UIImage systemImageNamed:@"textformat"] forState:UIControlStateNormal];
-    self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
+    self.optionalLabel = [self label:@"跟随全局字体包 · 自动读取 SFUISoft.ttc" size:12 color:UIColor.secondaryLabelColor];
+    self.optionalLabel.textAlignment = NSTextAlignmentLeft;
     self.previewView = [[FCFontPreviewView alloc] init];
     self.previewView.backgroundColor = [UIColor colorWithRed:1.0 green:0.78 blue:0.66 alpha:1.0];
     self.previewView.layer.cornerRadius = 30;
@@ -221,11 +237,21 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.previewView.layer.borderWidth = 0;
     self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
     [self.clearButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
-    self.restoreButton = [self button:@"恢复系统字体" action:@selector(confirmRestoreSystemFonts)];
-    self.restoreButton.backgroundColor = [UIColor colorWithRed:0.93 green:0.35 blue:0.27 alpha:1.0];
-    [self.restoreButton setImage:[UIImage systemImageNamed:@"arrow.counterclockwise.circle.fill"] forState:UIControlStateNormal];
 
-    self.statusLabel = [self label:@"运行日志\n准备就绪，请选择字体文件。" size:14 color:UIColor.secondaryLabelColor];
+    UIView *separator = [[UIView alloc] init];
+    separator.backgroundColor = UIColor.separatorColor;
+    UIStackView *selectionCard = [[UIStackView alloc] initWithArrangedSubviews:@[
+        primaryButton, self.primaryLabel, separator, optionalButton, self.optionalLabel
+    ]];
+    selectionCard.axis = UILayoutConstraintAxisVertical;
+    selectionCard.spacing = 2;
+    selectionCard.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.82];
+    selectionCard.layer.cornerRadius = 22;
+    selectionCard.layer.masksToBounds = YES;
+    selectionCard.layoutMargins = UIEdgeInsetsMake(6, 14, 6, 14);
+    selectionCard.layoutMarginsRelativeArrangement = YES;
+
+    self.statusLabel = [self label:@"准备就绪 · 请选择字体方案" size:13 color:UIColor.secondaryLabelColor];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.statusLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     self.statusLabel.layer.cornerRadius = 18;
@@ -244,44 +270,48 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.runButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleLabel, self.mountLabel, self.previewView, sectionLabel,
-        primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton, self.restoreButton,
+        header, self.mountLabel, self.previewView, sectionLabel, selectionCard, self.clearButton,
         self.statusLabel, bottomSpacer, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
     stack.spacing = 8;
-    [stack setCustomSpacing:10 afterView:titleLabel];
-    [stack setCustomSpacing:12 afterView:self.mountLabel];
-    [stack setCustomSpacing:12 afterView:self.previewView];
+    [stack setCustomSpacing:8 afterView:header];
+    [stack setCustomSpacing:10 afterView:self.mountLabel];
+    [stack setCustomSpacing:10 afterView:self.previewView];
     [stack setCustomSpacing:6 afterView:sectionLabel];
-    [stack setCustomSpacing:3 afterView:primaryButton];
-    [stack setCustomSpacing:3 afterView:optionalButton];
-    [stack setCustomSpacing:10 afterView:self.clearButton];
-    [stack setCustomSpacing:10 afterView:self.statusLabel];
+    [stack setCustomSpacing:8 afterView:selectionCard];
+    [stack setCustomSpacing:8 afterView:self.statusLabel];
     [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
         [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],
         [stack.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-14],
-        [self.mountLabel.heightAnchor constraintEqualToConstant:32],
-        [primaryButton.heightAnchor constraintEqualToConstant:54],
-        [optionalButton.heightAnchor constraintEqualToConstant:54],
-        [self.previewView.heightAnchor constraintEqualToConstant:132],
-        [self.clearButton.heightAnchor constraintEqualToConstant:42],
+        [header.heightAnchor constraintEqualToConstant:44],
+        [self.restoreButton.widthAnchor constraintEqualToConstant:42],
         [self.restoreButton.heightAnchor constraintEqualToConstant:42],
-        [self.statusLabel.heightAnchor constraintEqualToConstant:64],
+        [self.mountLabel.heightAnchor constraintEqualToConstant:28],
+        [primaryButton.heightAnchor constraintEqualToConstant:40],
+        [optionalButton.heightAnchor constraintEqualToConstant:40],
+        [separator.heightAnchor constraintEqualToConstant:0.5],
+        [selectionCard.heightAnchor constraintEqualToConstant:140],
+        [self.previewView.heightAnchor constraintEqualToConstant:118],
+        [self.clearButton.heightAnchor constraintEqualToConstant:36],
+        [self.statusLabel.heightAnchor constraintEqualToConstant:46],
         [bottomSpacer.heightAnchor constraintGreaterThanOrEqualToConstant:0],
         [self.runButton.heightAnchor constraintEqualToConstant:56],
     ]];
     for (UIButton *selectionButton in @[primaryButton, optionalButton]) {
-        selectionButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.82];
+        selectionButton.backgroundColor = UIColor.clearColor;
         [selectionButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
         selectionButton.tintColor = UIColor.systemOrangeColor;
-        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-        selectionButton.layer.borderWidth = 0.5;
-        selectionButton.layer.borderColor = [UIColor colorWithWhite:0.75 alpha:0.45].CGColor;
+        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        selectionButton.contentEdgeInsets = UIEdgeInsetsMake(0, 8, 0, 8);
+        selectionButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+        selectionButton.layer.borderWidth = 0;
+        selectionButton.layer.shadowOpacity = 0;
+        selectionButton.layer.cornerRadius = 0;
     }
     [self cleanupOldImports];
     [self updateClearButtonState];
@@ -351,7 +381,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.previewGeneration++;
     [self.previewView clearFont];
     self.primaryLabel.text = @"尚未选择";
-    self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
+    self.optionalLabel.text = @"跟随全局字体包 · 自动读取 SFUISoft.ttc";
     [self cleanupOldImports];
     [self updateClearButtonState];
     self.statusLabel.text = @"已清空所选字体包；系统中已应用的字体不会受到影响。";
@@ -390,6 +420,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 
 - (void)updateClearButtonState {
     BOOL hasSelection = self.primaryPath.length > 0 || self.optionalPath.length > 0;
+    self.clearButton.hidden = !hasSelection;
     self.clearButton.enabled = hasSelection;
     self.clearButton.backgroundColor = hasSelection ? UIColor.systemBlueColor : UIColor.systemGray4Color;
     self.clearButton.tintColor = hasSelection ? UIColor.whiteColor : UIColor.systemGrayColor;
@@ -407,20 +438,20 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mountMode = mode;
             if ([mode isEqualToString:@"mnt"]) {
-                self.mountLabel.text = @"当前挂载模式：mnt";
+                self.mountLabel.text = @"● mnt";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
                 self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
             } else if ([mode isEqualToString:@"bindfs"]) {
-                self.mountLabel.text = @"当前挂载模式：bindfs（mount_bindfs）";
+                self.mountLabel.text = @"● bindfs";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
                 self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
             } else if ([mode isEqualToString:@"mnt-unmounted"]) {
-                self.mountLabel.text = @"当前挂载模式：mnt（Fonts 尚未创建）";
+                self.mountLabel.text = @"● mnt 配置存在 · 尚未挂载";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
                 self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
                 [self presentMissingMountWarningIfNeeded];
             } else {
-                self.mountLabel.text = @"当前挂载模式：未识别（执行时将再次检测）";
+                self.mountLabel.text = @"● 未识别 · 执行时再次检测";
                 self.mountLabel.textColor = UIColor.secondaryLabelColor;
                 self.mountLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
                 [self presentMissingMountWarningIfNeeded];
@@ -705,7 +736,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             self.previewGeneration++;
             [self.previewView clearFont];
             self.primaryLabel.text = @"尚未选择";
-            self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
+            self.optionalLabel.text = @"跟随全局字体包 · 自动读取 SFUISoft.ttc";
             [self updateClearButtonState];
             if (status != 0) {
                 self.runButton.enabled = YES;
