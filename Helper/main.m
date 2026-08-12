@@ -271,9 +271,18 @@ static BOOL systemFontsAreMounted(void) {
     return strcmp(info.f_mntonname, "/System/Library/Fonts") == 0;
 }
 
+static NSString *trustedJBCTLPath(void) {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    // zqbb exposes the modified controller at this literal path.  Do not
+    // translate it through jbroot first: that can select a different copy.
+    if ([manager isExecutableFileAtPath:@"/basebin/jbctl"]) return @"/basebin/jbctl";
+    NSString *rooted = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+    return [manager isExecutableFileAtPath:rooted] ? rooted : nil;
+}
+
 static NSString *ensureTrustedMntFonts(NSString **failure) {
-    NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-    if (![NSFileManager.defaultManager isExecutableFileAtPath:jbctl]) {
+    NSString *jbctl = trustedJBCTLPath();
+    if (!jbctl) {
         if (failure) *failure = @"当前 Dopamine 不包含支持字体挂载的 /basebin/jbctl。";
         return nil;
     }
@@ -362,8 +371,8 @@ static int detectMountMode(void) {
     BOOL prefersMnt = hasZqbbFontMountPreference();
     NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-    BOOL hasTrustedJbctl = [NSFileManager.defaultManager isExecutableFileAtPath:jbctl];
+    NSString *jbctl = trustedJBCTLPath();
+    BOOL hasTrustedJbctl = jbctl != nil;
     if (hasTrustedJbctl && prefersMnt && mntTarget && systemFontsAreMounted()) return 14;
     if (hasTrustedJbctl && (hasZqbbMountEnvironment() || prefersMnt)) return 15;
     if (prefersMnt && mntTarget) return 10;
@@ -389,7 +398,8 @@ static int createMntFontsMount(void) {
                             withIntermediateDirectories:YES attributes:nil error:&directoryError];
     if (directoryError || ![config writeToFile:configPath atomically:YES]) return 21;
 
-    NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+    NSString *jbctl = trustedJBCTLPath();
+    if (!jbctl) return 20;
     int mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
     NSString *target = nil;
     for (NSUInteger attempt = 0; attempt < 20; attempt++) {
@@ -480,7 +490,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
     if (!target && prefersMnt && mntTarget && !sfuiOnly) {
-        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+        NSString *jbctl = trustedJBCTLPath();
         int unmountStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
         if (unmountStatus != 0) {
             failure = [NSString stringWithFormat:@"卸载现有 mnt 字体目录失败（%d），为避免误删已停止。", unmountStatus];
@@ -567,7 +577,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     }
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
     if ([target containsString:@"/mnt/"]) {
-        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+        NSString *jbctl = trustedJBCTLPath();
         int unmountStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
         if (unmountStatus != 0) {
             failure = [NSString stringWithFormat:@"字体已覆盖，但卸载 mnt 以重新映射失败（%d）。", unmountStatus];

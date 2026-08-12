@@ -74,9 +74,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.1.0-zqbb-alpha5</string>
+    <string>2.1.0-zqbb-alpha6</string>
     <key>CFBundleVersion</key>
-    <string>68</string>
+    <string>69</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
