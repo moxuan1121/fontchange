@@ -482,42 +482,22 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
     }
 
-    target = ensureTrustedMntFonts(&failure);
-    if (!target) goto fail;
-    prefersMnt = YES;
-
     prefersMnt = hasZqbbFontMountPreference();
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    if (!target && prefersMnt && mntTarget && !sfuiOnly) {
-        NSString *jbctl = trustedJBCTLPath();
-        int unmountStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
-        if (unmountStatus != 0) {
-            failure = [NSString stringWithFormat:@"卸载现有 mnt 字体目录失败（%d），为避免误删已停止。", unmountStatus];
-            goto fail;
-        }
-        NSError *removeError = nil;
-        if (![NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError] &&
-            [NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
-            failure = [NSString stringWithFormat:@"删除旧 mnt 字体副本失败：%@", removeError.localizedDescription ?: @"未知错误"];
-            goto fail;
-        }
-        int mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-        for (NSUInteger attempt = 0; attempt < 20; attempt++) {
-            mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-            if (mntTarget) break;
-            usleep(300000);
-        }
-        if (mountStatus != 0 || !mntTarget) {
-            failure = [NSString stringWithFormat:@"zqbb 重新创建原生 mnt 字体副本失败（%d）。", mountStatus];
-            goto fail;
-        }
-        target = mntTarget;
-    } else if (prefersMnt && mntTarget) {
-        target = mntTarget;
+    if (sfuiOnly) {
+        // TTC-only must never execute --copy because that restores every font.
+        if (prefersMnt && mntTarget) target = mntTarget;
+        else if (bindfsTarget) target = bindfsTarget;
+        else if (mntTarget) target = mntTarget;
+    } else if (prefersMnt || hasZqbbMountEnvironment()) {
+        target = ensureTrustedMntFonts(&failure);
+        if (!target) goto fail;
+        prefersMnt = YES;
+    } else if (![NSFileManager.defaultManager isExecutableFileAtPath:mountBindfs]) {
+        // Reuse an existing directory only when its provider binary is absent.
+        target = bindfsTarget ?: mntTarget;
     }
-    if (sfuiOnly && !target && bindfsTarget) target = bindfsTarget;
-    if (sfuiOnly && !target && mntTarget) target = mntTarget;
     if (sfuiOnly && !target) {
         failure = @"单独替换 SFUISoft 时未找到现有 bindfs 或 mnt 字体目录；为避免还原其他字体，已停止且未执行 --copy。";
         goto fail;

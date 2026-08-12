@@ -1,6 +1,6 @@
 Package: com.moxuan1121.fontchange.selfcontained
 Name: FontChange Self-Contained Experimental
-Version: 2.1.0-zqbb-alpha6
+Version: 2.1.0-adaptive-alpha7
 Architecture: iphoneos-arm64e
 Description: Experimental zqbb jbctl font manager build with an isolated app, helper, and preferences namespace.
 Maintainer: moxuan1121
