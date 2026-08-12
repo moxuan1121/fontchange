@@ -31,7 +31,13 @@ jobs:
 
       - name: Build package
         shell: bash
-        run: make clean package FINALPACKAGE=1
+        run: |
+          make clean package FINALPACKAGE=1
+          bindfs_bin="$(find .theos -type f -name fontchange-bindfs | head -n 1)"
+          test -n "$bindfs_bin"
+          ldid -e "$bindfs_bin" | tee /tmp/fontchange-bindfs-entitlements.plist
+          grep -q 'com.apple.private.bindfs-allow' /tmp/fontchange-bindfs-entitlements.plist
+          grep -q 'com.apple.private.security.container-required' /tmp/fontchange-bindfs-entitlements.plist
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
@@ -39,4 +45,3 @@ jobs:
           name: fontchange-roothide-deb
           path: packages/*.deb
           if-no-files-found: error
-
