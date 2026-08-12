@@ -250,17 +250,54 @@ static BOOL hasZqbbFontMountPreference(void) {
     return [rootlessPaths containsObject:@"/System/Library/Fonts"];
 }
 
-static int installFonts(NSString *primaryZip, NSString *optionalZip) {
+static int detectMountMode(void) {
+    BOOL prefersMnt = hasZqbbFontMountPreference();
+    NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
+    NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
+    if (prefersMnt && mntTarget) return 10;
+    if (bindfsTarget) return 11;
+    if (mntTarget) return 10;
+    return 12;
+}
+
+static NSString *findOriginalFontsRoot(NSString *extracted, NSString **failure) {
+    NSMutableArray<NSString *> *candidates = [NSMutableArray arrayWithObject:extracted];
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
+    for (NSString *relative in enumerator) {
+        NSString *path = [extracted stringByAppendingPathComponent:relative];
+        BOOL isDirectory = NO;
+        if ([NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory) {
+            [candidates addObject:path];
+        }
+    }
+    NSMutableArray<NSString *> *matches = [NSMutableArray array];
+    for (NSString *candidate in candidates) {
+        BOOL core = [NSFileManager.defaultManager fileExistsAtPath:[candidate stringByAppendingPathComponent:@"Core"]];
+        BOOL addition = [NSFileManager.defaultManager fileExistsAtPath:[candidate stringByAppendingPathComponent:@"CoreAddition"]];
+        BOOL ui = [NSFileManager.defaultManager fileExistsAtPath:[candidate stringByAppendingPathComponent:@"CoreUI"]];
+        BOOL language = [NSFileManager.defaultManager fileExistsAtPath:[candidate stringByAppendingPathComponent:@"LanguageSupport"]];
+        if (core && addition && ui && language) [matches addObject:candidate];
+    }
+    if (matches.count == 1) return matches.firstObject;
+    if (failure) *failure = matches.count == 0
+        ? @"原生字体 ZIP 中找不到同时包含 Core、CoreAddition、CoreUI 和 LanguageSupport 的 Fonts 根目录。"
+        : @"原生字体 ZIP 中找到多个可能的 Fonts 根目录，无法确定应使用哪一个。";
+    return nil;
+}
+
+static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *originalZip) {
     BOOL sfuiOnly = [primaryZip isEqualToString:@"-"];
     NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
         [NSString stringWithFormat:@"com.moxuan1121.fontchange-%@", NSUUID.UUID.UUIDString]];
     NSString *primaryExtract = [work stringByAppendingPathComponent:@"primary"];
     NSString *optionalExtract = [work stringByAppendingPathComponent:@"optional"];
+    NSString *originalExtract = [work stringByAppendingPathComponent:@"original"];
 
     NSString *failure = nil;
     NSString *primaryRoot = nil;
     NSString *optionalSFUI = nil;
+    NSString *originalRoot = nil;
     NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
     NSString *target = nil;
     BOOL usesBindfs = NO;
@@ -316,6 +353,25 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
     }
 
+    if (![originalZip isEqualToString:@"-"]) {
+        if (sfuiOnly) {
+            failure = @"原生字体恢复包只能用于主要字体包的全局覆盖模式。";
+            goto fail;
+        }
+        directoryError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtPath:originalExtract
+                                     withIntermediateDirectories:YES
+                                                      attributes:nil
+                                                           error:&directoryError]) {
+            failure = [NSString stringWithFormat:@"无法创建原生字体临时目录 %@：%@", originalExtract,
+                directoryError.localizedDescription ?: @"未知错误"];
+            goto fail;
+        }
+        if (!extractArchive(originalZip, originalExtract, &failure)) goto fail;
+        originalRoot = findOriginalFontsRoot(originalExtract, &failure);
+        if (!originalRoot) goto fail;
+    }
+
     prefersMnt = hasZqbbFontMountPreference();
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
@@ -345,6 +401,14 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
                 mountStatus, mountDetails.length ? mountDetails : @"命令没有返回错误详情"];
             goto fail;
         }
+    }
+
+    if (originalRoot) {
+        if (![target containsString:@"/mnt/"]) {
+            failure = @"原生字体恢复包仅允许用于 mnt 挂载模式。";
+            goto fail;
+        }
+        if (!mergeDirectory(originalRoot, target, &failure)) goto fail;
     }
     if (!target) {
         failure = @"未找到有效的 mnt 字体目录，mount_bindfs 也未生成有效 bindfs 字体目录。";
@@ -472,8 +536,12 @@ int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (geteuid() != 0) return 77;
         NSString *mode = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"";
-        if ([mode isEqualToString:@"--install"] && argc == 4) {
-            return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]]);
+        if ([mode isEqualToString:@"--install"] && argc == 5) {
+            return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]],
+                [NSString stringWithUTF8String:argv[4]]);
+        }
+        if ([mode isEqualToString:@"--detect-mount"] && argc == 2) {
+            return detectMountMode();
         }
         if ([mode isEqualToString:@"--preflight"] && argc == 3) {
             return preflight();

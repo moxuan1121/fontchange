@@ -13,8 +13,12 @@ extern char **environ;
 @property(nonatomic) NSInteger pickingSlot;
 @property(nonatomic, copy) NSString *primaryPath;
 @property(nonatomic, copy) NSString *optionalPath;
+@property(nonatomic, copy) NSString *originalPath;
+@property(nonatomic, copy) NSString *mountMode;
 @property(nonatomic, strong) UILabel *primaryLabel;
 @property(nonatomic, strong) UILabel *optionalLabel;
+@property(nonatomic, strong) UILabel *originalLabel;
+@property(nonatomic, strong) UILabel *mountLabel;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIButton *runButton;
 @property(nonatomic, strong) UIButton *clearButton;
@@ -31,10 +35,12 @@ extern char **environ;
     titleLabel.font = [UIFont systemFontOfSize:32 weight:UIFontWeightBold];
     UILabel *featureLabel = [self label:@"通过原生切换语言环境，深度刷新系统字体缓存。" size:15 color:UIColor.secondaryLabelColor];
     UILabel *formatLabel = [self label:@"压缩包仅支持 ZIP 格式，暂不支持 7z、RAR。" size:13 color:UIColor.tertiaryLabelColor];
+    self.mountLabel = [self label:@"当前挂载模式：正在检测…" size:13 color:UIColor.secondaryLabelColor];
     UIButton *primaryButton = [self button:@"主要字体包（全局覆盖，可选）" action:@selector(selectPrimary)];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
     UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
     self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
+    self.originalLabel = [self label:@"mnt 原生字体恢复包：未选择（仅全局覆盖时使用）" size:13 color:UIColor.secondaryLabelColor];
     self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
 
     self.statusLabel = [self label:@"执行顺序：创建原生字体副本 → 覆盖字体 → 原生切换语言 → 重启用户空间" size:14 color:UIColor.secondaryLabelColor];
@@ -47,7 +53,8 @@ extern char **environ;
     self.runButton.backgroundColor = UIColor.systemGreenColor;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleLabel, featureLabel, formatLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
+        titleLabel, featureLabel, formatLabel, self.mountLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
+        self.originalLabel, self.clearButton,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -73,6 +80,7 @@ extern char **environ;
     ]];
     [self cleanupOldImports];
     [self updateClearButtonState];
+    [self detectMountMode];
 }
 
 - (UILabel *)label:(NSString *)text size:(CGFloat)size color:(UIColor *)color {
@@ -112,20 +120,68 @@ extern char **environ;
 - (void)clearSelections {
     self.primaryPath = nil;
     self.optionalPath = nil;
+    self.originalPath = nil;
     self.primaryLabel.text = @"尚未选择";
     self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
+    self.originalLabel.text = @"mnt 原生字体恢复包：未选择（仅全局覆盖时使用）";
     [self cleanupOldImports];
     [self updateClearButtonState];
     self.statusLabel.text = @"已清空所选字体包；系统中已应用的字体不会受到影响。";
 }
 
 - (void)updateClearButtonState {
-    BOOL hasSelection = self.primaryPath.length > 0 || self.optionalPath.length > 0;
+    BOOL hasSelection = self.primaryPath.length > 0 || self.optionalPath.length > 0 || self.originalPath.length > 0;
     self.clearButton.enabled = hasSelection;
     self.clearButton.backgroundColor = hasSelection ? UIColor.systemBlueColor : UIColor.systemGray4Color;
     [self.clearButton setTitleColor:hasSelection ? UIColor.whiteColor : UIColor.systemGrayColor
                           forState:UIControlStateNormal];
     self.clearButton.alpha = hasSelection ? 1.0 : 0.72;
+}
+
+- (void)detectMountMode {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
+        NSString *mode = status == 10 ? @"mnt" : (status == 11 ? @"bindfs" : @"unknown");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.mountMode = mode;
+            if ([mode isEqualToString:@"mnt"]) {
+                self.mountLabel.text = @"当前挂载模式：mnt";
+                self.mountLabel.textColor = UIColor.systemOrangeColor;
+            } else if ([mode isEqualToString:@"bindfs"]) {
+                self.mountLabel.text = @"当前挂载模式：bindfs（mount_bindfs）";
+                self.mountLabel.textColor = UIColor.systemGreenColor;
+            } else {
+                self.mountLabel.text = @"当前挂载模式：未识别（执行时将再次检测）";
+                self.mountLabel.textColor = UIColor.secondaryLabelColor;
+            }
+        });
+    });
+}
+
+- (void)offerOriginalFontRestoreIfNeeded {
+    if (self.mountMode.length == 0 || [self.mountMode isEqualToString:@"unknown"]) {
+        int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
+        self.mountMode = status == 10 ? @"mnt" : (status == 11 ? @"bindfs" : @"unknown");
+    }
+    if (![self.mountMode isEqualToString:@"mnt"] || self.primaryPath.length == 0) return;
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"检测到 mnt 挂载模式"
+                         message:@"如需在全局覆盖前恢复原生系统字体，可选择原生字体 ZIP。恢复时只覆盖 ZIP 中存在的文件，不会删除其他文件。"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"无需恢复，直接覆盖"
+                                            style:UIAlertActionStyleDefault
+                                          handler:^(__unused UIAlertAction *action) {
+        self.originalPath = nil;
+        self.originalLabel.text = @"mnt 原生字体恢复包：已选择跳过";
+        [self updateClearButtonState];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"选择原生字体 ZIP"
+                                            style:UIAlertActionStyleDefault
+                                          handler:^(__unused UIAlertAction *action) {
+        [self presentPickerForSlot:3];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)handleExternalURL:(NSURL *)url {
@@ -195,11 +251,11 @@ extern char **environ;
     if (!acceptsZIP && !acceptsTTC) {
         self.statusLabel.text = self.pickingSlot == 1
             ? @"主要字体包必须是 .zip 文件。"
-            : @"请选择字体 ZIP 或单个 .ttc 文件。";
+            : (self.pickingSlot == 3 ? @"原生字体恢复包必须是 .zip 文件。" : @"请选择字体 ZIP 或单个 .ttc 文件。");
         return;
     }
     NSString *name = self.pickingSlot == 1 ? @"primary.zip"
-        : (acceptsTTC ? @"optional-SFUISoft.ttc" : @"optional100.zip");
+        : (self.pickingSlot == 3 ? @"original.zip" : (acceptsTTC ? @"optional-SFUISoft.ttc" : @"optional100.zip"));
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
     BOOL scoped = [source startAccessingSecurityScopedResource];
@@ -230,6 +286,11 @@ extern char **environ;
         self.primaryPath = destination;
         self.primaryLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"主要字体包导入完成：%@。尚未执行替换。", source.lastPathComponent];
+        [self offerOriginalFontRestoreIfNeeded];
+    } else if (self.pickingSlot == 3) {
+        self.originalPath = destination;
+        self.originalLabel.text = [NSString stringWithFormat:@"mnt 原生字体恢复包：%@", source.lastPathComponent];
+        self.statusLabel.text = [NSString stringWithFormat:@"原生字体恢复包导入完成：%@。执行时将先恢复，再覆盖自定义字体。", source.lastPathComponent];
     } else {
         self.optionalPath = destination;
         self.optionalLabel.text = source.lastPathComponent;
@@ -282,14 +343,18 @@ extern char **environ;
     BOOL sfuiOnly = self.primaryPath.length == 0;
     NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
+    NSString *original = self.originalPath ?: @"-";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        int status = [self runHelperArguments:@[@"--install", primary, optional] wait:YES];
+        int status = [self runHelperArguments:@[@"--install", primary, optional, original] wait:YES];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self cleanupOldImports];
             self.primaryPath = nil;
             self.optionalPath = nil;
+            self.originalPath = nil;
             self.primaryLabel.text = @"尚未选择";
             self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
+            self.originalLabel.text = @"mnt 原生字体恢复包：未选择（仅全局覆盖时使用）";
+            [self updateClearButtonState];
             if (status != 0) {
                 self.runButton.enabled = YES;
                 self.runButton.backgroundColor = UIColor.systemRedColor;
