@@ -4,6 +4,7 @@
 #import <objc/message.h>
 #import <spawn.h>
 #import <sys/wait.h>
+#import <string.h>
 #import <roothide.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <CoreText/CoreText.h>
@@ -30,8 +31,33 @@ extern char **environ;
     }
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
-        CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0);
-        _previewFont = CTFontCreateWithFontDescriptor(descriptor, 27.0, NULL);
+        NSString *probe = @"中文字体预览";
+        NSUInteger length = probe.length;
+        UniChar *characters = calloc(length, sizeof(UniChar));
+        CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
+        [probe getCharacters:characters range:NSMakeRange(0, length)];
+        CFIndex bestCoverage = -1;
+        for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
+            CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
+            CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 27.0, NULL);
+            if (!candidate) continue;
+            memset(glyphs, 0, length * sizeof(CGGlyph));
+            CTFontGetGlyphsForCharacters(candidate, characters, glyphs, length);
+            CFIndex coverage = 0;
+            for (NSUInteger characterIndex = 0; characterIndex < length; characterIndex++) {
+                if (glyphs[characterIndex] != 0) coverage++;
+            }
+            if (coverage > bestCoverage) {
+                if (_previewFont) CFRelease(_previewFont);
+                _previewFont = candidate;
+                bestCoverage = coverage;
+            } else {
+                CFRelease(candidate);
+            }
+            if (coverage == (CFIndex)length) break;
+        }
+        free(characters);
+        free(glyphs);
     }
     if (descriptors) CFRelease(descriptors);
     [self setNeedsDisplay];
