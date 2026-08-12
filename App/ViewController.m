@@ -13,11 +13,13 @@ extern char **environ;
 
 @interface FCFontPreviewView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
+- (void)setDisplayName:(NSString *)name;
 - (void)clearFont;
 @end
 
 @implementation FCFontPreviewView {
     CTFontRef _previewFont;
+    NSString *_displayName;
 }
 
 - (void)dealloc {
@@ -69,6 +71,12 @@ extern char **environ;
         CFRelease(_previewFont);
         _previewFont = NULL;
     }
+    _displayName = nil;
+    [self setNeedsDisplay];
+}
+
+- (void)setDisplayName:(NSString *)name {
+    _displayName = [name copy];
     [self setNeedsDisplay];
 }
 
@@ -102,6 +110,33 @@ static void FCDrawPreviewLine(CGContextRef context, NSString *text, CTFontRef so
     CFRelease(font);
 }
 
+static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef font,
+                              UIColor *color, CGFloat right, CGFloat baseline, CGFloat maxWidth) {
+    NSDictionary *attributes = @{
+        (__bridge id)kCTFontAttributeName: (__bridge id)font,
+        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+    };
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+    CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    if (width > maxWidth) {
+        CGFloat size = MAX(8.0, CTFontGetSize(font) * maxWidth / MAX(1.0, width));
+        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, size, NULL, NULL);
+        CFRelease(line);
+        attributes = @{
+            (__bridge id)kCTFontAttributeName: (__bridge id)fitted,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+        };
+        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+        width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+        CFRelease(fitted);
+    }
+    CGContextSetTextPosition(context, MAX(20.0, right - width), baseline);
+    CTLineDraw(line, context);
+    CFRelease(line);
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef context = UIGraphicsGetCurrentContext();
     CGContextSaveGState(context);
@@ -114,17 +149,23 @@ static void FCDrawPreviewLine(CGContextRef context, NSString *text, CTFontRef so
                                       : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 34.0, NULL);
     CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0, NULL, NULL)
                                     : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0, NULL);
+    CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0, NULL);
     FCDrawPreviewLine(context, @"实时预览", badge, ink, 20, 104, width - 40, 11);
     if (_previewFont) {
         FCDrawPreviewLine(context, @"让每个字，都有自己的性格。", headline, ink, 20, 61, width - 40, 18);
         FCDrawPreviewLine(context, @"春风有信 · 0123456789", detail,
-                          [UIColor colorWithWhite:0.18 alpha:0.72], 20, 23, width - 40, 12);
+                          [UIColor colorWithWhite:0.18 alpha:0.72], 20, 29, width - 40, 12);
+        if (_displayName.length) {
+            FCDrawPreviewName(context, _displayName, nameFont,
+                              [UIColor colorWithWhite:0.16 alpha:0.72], width - 20, 9, width * 0.72);
+        }
     } else {
         FCDrawPreviewLine(context, @"导入字体后，在这里实时预览。", headline, ink, 20, 55, width - 40, 18);
     }
     CFRelease(badge);
     CFRelease(headline);
     CFRelease(detail);
+    CFRelease(nameFont);
     CGContextRestoreGState(context);
 }
 
@@ -186,11 +227,14 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.runButton = [self button:@"检查并开始执行" action:@selector(confirmRun)];
     self.runButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
+    UIView *flexibleSpace = [[UIView alloc] init];
+    [flexibleSpace setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
+    [flexibleSpace setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         titleLabel, self.mountLabel, self.previewView, sectionLabel,
         primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
-        self.statusLabel, self.runButton
+        self.statusLabel, flexibleSpace, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
@@ -203,22 +247,12 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [stack setCustomSpacing:3 afterView:optionalButton];
     [stack setCustomSpacing:10 afterView:self.clearButton];
     [stack setCustomSpacing:10 afterView:self.statusLabel];
-    UIScrollView *scrollView = [[UIScrollView alloc] init];
-    scrollView.translatesAutoresizingMaskIntoConstraints = NO;
-    scrollView.alwaysBounceVertical = YES;
-    scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
-    [self.view addSubview:scrollView];
-    [scrollView addSubview:stack];
+    [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
-        [scrollView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
-        [scrollView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
-        [scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
-        [scrollView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [stack.leadingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.leadingAnchor constant:24],
-        [stack.trailingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.trailingAnchor constant:-24],
-        [stack.topAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.topAnchor constant:14],
-        [stack.bottomAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.bottomAnchor constant:-16],
-        [stack.widthAnchor constraintEqualToAnchor:scrollView.frameLayoutGuide.widthAnchor constant:-48],
+        [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
+        [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
+        [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],
+        [stack.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-14],
         [self.mountLabel.heightAnchor constraintGreaterThanOrEqualToConstant:32],
         [primaryButton.heightAnchor constraintEqualToConstant:54],
         [optionalButton.heightAnchor constraintEqualToConstant:54],
@@ -315,6 +349,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [self.previewView clearFont];
         return;
     }
+    [self.previewView setDisplayName:source.lastPathComponent.stringByDeletingPathExtension];
     NSString *kind = slot == 2 ? @"optional" : @"primary";
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
         [NSString stringWithFormat:@"preview-%lu.ttc", (unsigned long)generation]];
