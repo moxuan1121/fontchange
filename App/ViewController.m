@@ -61,10 +61,26 @@ extern char **environ;
         [[NSAttributedString alloc] initWithString:text attributes:attributes]);
     CGFloat ascent = 0, descent = 0;
     double width = CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
+    CGFloat maximumWidth = MAX(1, CGRectGetWidth(rect) - 28.0);
+    CGFloat maximumHeight = MAX(1, CGRectGetHeight(rect) - 20.0);
+    CGFloat scale = MIN(1.0, MIN(maximumWidth / MAX(1.0, width), maximumHeight / MAX(1.0, ascent + descent)));
+    CTFontRef fittedFont = NULL;
+    if (scale < 0.999) {
+        fittedFont = CTFontCreateCopyWithAttributes(font, MAX(14.0, CTFontGetSize(font) * scale), NULL, NULL);
+        CFRelease(line);
+        attributes = @{
+            (__bridge id)kCTFontAttributeName: (__bridge id)fittedFont,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.labelColor.CGColor
+        };
+        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+        width = CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
+    }
     CGContextSetTextPosition(context, MAX(12, (CGRectGetWidth(rect) - width) / 2.0),
         (CGRectGetHeight(rect) - ascent - descent) / 2.0 + descent);
     CTLineDraw(line, context);
     CFRelease(line);
+    if (fittedFont) CFRelease(fittedFont);
     if (!_previewFont && font) CFRelease(font);
     CGContextRestoreGState(context);
 }
@@ -200,10 +216,10 @@ extern char **environ;
     self.statusLabel.text = @"已清空所选字体包；系统中已应用的字体不会受到影响。";
 }
 
-- (void)refreshFontPreview {
+- (void)refreshFontPreviewForSlot:(NSInteger)slot {
     self.previewGeneration++;
     NSUInteger generation = self.previewGeneration;
-    NSString *source = self.optionalPath.length ? self.optionalPath : self.primaryPath;
+    NSString *source = slot == 2 ? self.optionalPath : self.primaryPath;
     if (!source.length) {
         [self.previewView clearFont];
         return;
@@ -214,7 +230,7 @@ extern char **environ;
         }
         return;
     }
-    NSString *kind = self.optionalPath.length ? @"optional" : @"primary";
+    NSString *kind = slot == 2 ? @"optional" : @"primary";
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:@"preview.ttc"];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -385,7 +401,7 @@ extern char **environ;
         self.primaryPath = destination;
         self.primaryLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"主要字体包导入完成：%@。尚未执行替换。", source.lastPathComponent];
-        [self refreshFontPreview];
+        [self refreshFontPreviewForSlot:1];
         [self offerOriginalFontRestoreIfNeeded];
     } else if (self.pickingSlot == 3) {
         self.originalPath = destination;
@@ -395,7 +411,7 @@ extern char **environ;
         self.optionalPath = destination;
         self.optionalLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
-        [self refreshFontPreview];
+        [self refreshFontPreviewForSlot:2];
     }
     [self updateClearButtonState];
 }
