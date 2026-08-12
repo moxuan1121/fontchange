@@ -184,8 +184,10 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIButton *runButton;
 @property(nonatomic, strong) UIButton *clearButton;
+@property(nonatomic, strong) UIButton *restoreButton;
 @property(nonatomic, strong) FCFontPreviewView *previewView;
 @property(nonatomic) NSUInteger previewGeneration;
+@property(nonatomic) BOOL restoringSystemFonts;
 @end
 
 @implementation ViewController
@@ -219,6 +221,9 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.previewView.layer.borderWidth = 0;
     self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
     [self.clearButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
+    self.restoreButton = [self button:@"恢复系统字体" action:@selector(confirmRestoreSystemFonts)];
+    self.restoreButton.backgroundColor = [UIColor colorWithRed:0.93 green:0.35 blue:0.27 alpha:1.0];
+    [self.restoreButton setImage:[UIImage systemImageNamed:@"arrow.counterclockwise.circle.fill"] forState:UIControlStateNormal];
 
     self.statusLabel = [self label:@"运行日志\n准备就绪，请选择字体文件。" size:14 color:UIColor.secondaryLabelColor];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
@@ -240,7 +245,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         titleLabel, self.mountLabel, self.previewView, sectionLabel,
-        primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
+        primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton, self.restoreButton,
         self.statusLabel, bottomSpacer, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -265,6 +270,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [optionalButton.heightAnchor constraintEqualToConstant:54],
         [self.previewView.heightAnchor constraintEqualToConstant:132],
         [self.clearButton.heightAnchor constraintEqualToConstant:42],
+        [self.restoreButton.heightAnchor constraintEqualToConstant:42],
         [self.statusLabel.heightAnchor constraintEqualToConstant:64],
         [bottomSpacer.heightAnchor constraintGreaterThanOrEqualToConstant:0],
         [self.runButton.heightAnchor constraintEqualToConstant:56],
@@ -631,6 +637,22 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)confirmRestoreSystemFonts {
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"恢复系统字体"
+                         message:@"将丢弃当前已覆盖的自定义字体，重新生成原生字体目录。随后会刷新语言缓存并重启用户空间。"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"确认恢复"
+                                            style:UIAlertActionStyleDestructive
+                                          handler:^(__unused UIAlertAction *action) {
+        weakSelf.restoringSystemFonts = YES;
+        [weakSelf beginConfirmedRun];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)beginConfirmedRun {
     NSArray<NSString *> *originalLanguages = NSLocale.preferredLanguages;
     NSString *current = originalLanguages.firstObject ?: @"zh-Hans";
@@ -647,17 +669,23 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 }
 
 - (void)runWithTemporaryLanguage:(NSString *)language originalLanguages:(NSArray<NSString *> *)originalLanguages {
+    BOOL restoringSystemFonts = self.restoringSystemFonts;
+    self.restoringSystemFonts = NO;
     self.runButton.enabled = NO;
     self.runButton.backgroundColor = UIColor.systemGreenColor;
     [self.runButton setTitle:@"正在执行…" forState:UIControlStateNormal];
-    self.statusLabel.text = self.primaryPath.length
+    self.statusLabel.text = restoringSystemFonts
+        ? @"运行日志\n• 正在恢复原生系统字体\n• 准备刷新字体缓存…"
+        : self.primaryPath.length
         ? @"运行日志\n• 正在解压并验证字体包\n• 准备全局覆盖字体…"
         : @"运行日志\n• 正在验证 SFUISoft.ttc\n• 准备替换锁屏字体…";
     BOOL sfuiOnly = self.primaryPath.length == 0;
     NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        int status = [self runHelperArguments:@[@"--install", primary, optional] wait:YES];
+        NSArray<NSString *> *helperArguments = restoringSystemFonts
+            ? @[@"--restore-system-fonts"] : @[@"--install", primary, optional];
+        int status = [self runHelperArguments:helperArguments wait:YES];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self cleanupOldImports];
             self.primaryPath = nil;
@@ -678,7 +706,9 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
                 self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
                 return;
             }
-            self.statusLabel.text = sfuiOnly
+            self.statusLabel.text = restoringSystemFonts
+                ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存\n• 即将重启用户空间…"
+                : sfuiOnly
                 ? @"运行日志\n✓ SFUISoft 替换完成\n• 正在刷新语言缓存\n• 即将重启用户空间…"
                 : @"运行日志\n✓ 全局字体覆盖完成\n• 正在刷新语言缓存\n• 即将重启用户空间…";
             NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";

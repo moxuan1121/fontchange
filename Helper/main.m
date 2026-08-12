@@ -279,6 +279,13 @@ static BOOL copyFile(NSString *source, NSString *destination, NSString **failure
 }
 
 static BOOL hasZqbbFontMountPreference(void) {
+    NSString *genericMountPath = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/RootHide/com.moxuan1121.genericmount.plist")];
+    NSDictionary *genericMountConfig = [NSDictionary dictionaryWithContentsOfFile:genericMountPath];
+    NSArray *genericMountPaths = [genericMountConfig[@"path"] isKindOfClass:NSArray.class]
+        ? genericMountConfig[@"path"] : nil;
+    if ([genericMountPaths containsObject:@"/System/Library/Fonts"]) return YES;
+
     NSString *rootHidePath = [NSString stringWithUTF8String:
         jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
     NSDictionary *rootHideConfig = [NSDictionary dictionaryWithContentsOfFile:rootHidePath];
@@ -291,12 +298,48 @@ static BOOL hasZqbbFontMountPreference(void) {
 }
 
 static BOOL hasZqbbMountEnvironment(void) {
+    NSString *genericMountConfig = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/RootHide/com.moxuan1121.genericmount.plist")];
     NSString *mountConfig = [NSString stringWithUTF8String:
         jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
     NSString *systemInjectConfig = [NSString stringWithUTF8String:
         jbroot("/var/mobile/Library/RootHide/cn.zqbb.inject.system.plist")];
-    return [NSFileManager.defaultManager fileExistsAtPath:mountConfig] ||
+    return [NSFileManager.defaultManager fileExistsAtPath:genericMountConfig] ||
+        [NSFileManager.defaultManager fileExistsAtPath:mountConfig] ||
         [NSFileManager.defaultManager fileExistsAtPath:systemInjectConfig];
+}
+
+static int restoreSystemFonts(void) {
+    NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
+    NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
+    BOOL prefersMnt = hasZqbbFontMountPreference();
+
+    if ((prefersMnt && mntTarget) || (mntTarget && !bindfsTarget)) {
+        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+        int status = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
+        if (status != 0) return status;
+
+        NSError *removeError = nil;
+        [NSFileManager.defaultManager removeItemAtPath:@"/mnt/System/Library/Fonts" error:&removeError];
+        if ([NSFileManager.defaultManager fileExistsAtPath:@"/mnt/System/Library/Fonts"]) return 81;
+
+        status = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
+        if (status != 0) return status;
+        for (NSUInteger attempt = 0; attempt < 30; attempt++) {
+            if (validFontsTarget(@"/mnt/System/Library/Fonts")) return 0;
+            usleep(300000);
+        }
+        return 82;
+    }
+
+    if (bindfsTarget) {
+        NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
+        if (![NSFileManager.defaultManager isExecutableFileAtPath:mountBindfs]) return 83;
+        int status = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
+        if (status != 0) return status;
+        return validFontsTarget(@"/bindfs/System/Library/Fonts") ? 0 : 84;
+    }
+    return 85;
 }
 
 static int detectMountMode(void) {
@@ -614,6 +657,9 @@ int main(int argc, char *argv[]) {
         NSString *mode = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"";
         if ([mode isEqualToString:@"--install"] && argc == 4) {
             return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]]);
+        }
+        if ([mode isEqualToString:@"--restore-system-fonts"] && argc == 2) {
+            return restoreSystemFonts();
         }
         if ([mode isEqualToString:@"--detect-mount"] && argc == 2) {
             return detectMountMode();
