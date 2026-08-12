@@ -230,11 +230,11 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     UIButton *primaryButton = [self button:@"全局字体包" action:@selector(selectPrimary)];
     [primaryButton setImage:[UIImage systemImageNamed:@"archivebox.fill"] forState:UIControlStateNormal];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
-    self.primaryLabel.textAlignment = NSTextAlignmentLeft;
+    self.primaryLabel.textAlignment = NSTextAlignmentCenter;
     UIButton *optionalButton = [self button:@"锁屏字体（SFUISoft）" action:@selector(selectOptional)];
     [optionalButton setImage:[UIImage systemImageNamed:@"textformat"] forState:UIControlStateNormal];
     self.optionalLabel = [self label:@"跟随全局字体包 · 自动读取 SFUISoft.ttc" size:12 color:UIColor.secondaryLabelColor];
-    self.optionalLabel.textAlignment = NSTextAlignmentLeft;
+    self.optionalLabel.textAlignment = NSTextAlignmentCenter;
     self.previewView = [[FCFontPreviewView alloc] init];
     self.previewView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         return traits.userInterfaceStyle == UIUserInterfaceStyleDark
@@ -253,11 +253,11 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         primaryButton, self.primaryLabel, separator, optionalButton, self.optionalLabel
     ]];
     selectionCard.axis = UILayoutConstraintAxisVertical;
-    selectionCard.spacing = 2;
-    selectionCard.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    selectionCard.spacing = 4;
+    selectionCard.backgroundColor = UIColor.clearColor;
     selectionCard.layer.cornerRadius = 22;
     selectionCard.layer.masksToBounds = YES;
-    selectionCard.layoutMargins = UIEdgeInsetsMake(6, 14, 6, 14);
+    selectionCard.layoutMargins = UIEdgeInsetsMake(2, 0, 2, 0);
     selectionCard.layoutMarginsRelativeArrangement = YES;
 
     self.statusLabel = [self label:@"准备就绪 · 请选择字体方案" size:13 color:UIColor.secondaryLabelColor];
@@ -303,10 +303,10 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [self.restoreButton.widthAnchor constraintEqualToConstant:42],
         [self.restoreButton.heightAnchor constraintEqualToConstant:42],
         [self.mountLabel.heightAnchor constraintEqualToConstant:28],
-        [primaryButton.heightAnchor constraintEqualToConstant:40],
-        [optionalButton.heightAnchor constraintEqualToConstant:40],
+        [primaryButton.heightAnchor constraintEqualToConstant:44],
+        [optionalButton.heightAnchor constraintEqualToConstant:44],
         [separator.heightAnchor constraintEqualToConstant:0.5],
-        [selectionCard.heightAnchor constraintEqualToConstant:140],
+        [selectionCard.heightAnchor constraintEqualToConstant:148],
         [self.previewView.heightAnchor constraintEqualToConstant:118],
         [self.clearButton.heightAnchor constraintEqualToConstant:36],
         [self.statusLabel.heightAnchor constraintEqualToConstant:46],
@@ -317,11 +317,15 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         selectionButton.backgroundColor = UIColor.clearColor;
         [selectionButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
         selectionButton.tintColor = UIColor.systemOrangeColor;
-        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        selectionButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
-        selectionButton.layer.borderWidth = 0;
-        selectionButton.layer.shadowOpacity = 0;
-        selectionButton.layer.cornerRadius = 0;
+        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+        selectionButton.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        selectionButton.backgroundColor = UIColor.secondarySystemBackgroundColor;
+        selectionButton.layer.borderWidth = 1.0;
+        selectionButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.30].CGColor;
+        selectionButton.layer.shadowOpacity = 0.05;
+        selectionButton.layer.shadowRadius = 5;
+        selectionButton.layer.shadowOffset = CGSizeMake(0, 2);
+        selectionButton.layer.cornerRadius = 14;
     }
     [self cleanupOldImports];
     [self updateClearButtonState];
