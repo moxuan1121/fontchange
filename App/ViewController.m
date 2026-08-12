@@ -72,42 +72,61 @@ extern char **environ;
     [self setNeedsDisplay];
 }
 
+static void FCDrawPreviewLine(CGContextRef context, NSString *text, CTFontRef sourceFont,
+                              UIColor *color, CGFloat x, CGFloat baseline, CGFloat maxWidth,
+                              CGFloat minimumSize) {
+    CTFontRef font = CFRetain(sourceFont);
+    NSDictionary *attributes = @{
+        (__bridge id)kCTFontAttributeName: (__bridge id)font,
+        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+    };
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+    CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    if (width > maxWidth) {
+        CGFloat size = MAX(minimumSize, CTFontGetSize(font) * maxWidth / MAX(1.0, width));
+        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, size, NULL, NULL);
+        CFRelease(font);
+        font = fitted;
+        CFRelease(line);
+        attributes = @{
+            (__bridge id)kCTFontAttributeName: (__bridge id)font,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+        };
+        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+    }
+    CGContextSetTextPosition(context, x, baseline);
+    CTLineDraw(line, context);
+    CFRelease(line);
+    CFRelease(font);
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef context = UIGraphicsGetCurrentContext();
     CGContextSaveGState(context);
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
-    CTFontRef font = _previewFont ?: CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 20.0, NULL);
-    NSString *text = _previewFont ? @"中文字体预览  Aa Bb  0123456789" : @"导入字体后将在这里显示预览";
-    NSDictionary *attributes = @{
-        (__bridge id)kCTFontAttributeName: (__bridge id)font,
-        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.labelColor.CGColor
-    };
-    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
-    CGFloat ascent = 0, descent = 0;
-    double width = CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
-    CGFloat maximumWidth = MAX(1, CGRectGetWidth(rect) - 28.0);
-    CGFloat maximumHeight = MAX(1, CGRectGetHeight(rect) - 20.0);
-    CGFloat scale = MIN(1.0, MIN(maximumWidth / MAX(1.0, width), maximumHeight / MAX(1.0, ascent + descent)));
-    CTFontRef fittedFont = NULL;
-    if (scale < 0.999) {
-        fittedFont = CTFontCreateCopyWithAttributes(font, MAX(14.0, CTFontGetSize(font) * scale), NULL, NULL);
-        CFRelease(line);
-        attributes = @{
-            (__bridge id)kCTFontAttributeName: (__bridge id)fittedFont,
-            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.labelColor.CGColor
-        };
-        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
-        width = CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
+    CGFloat width = CGRectGetWidth(rect);
+    UIColor *ink = [UIColor colorWithWhite:0.10 alpha:1.0];
+    CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 13.0, NULL);
+    CTFontRef headline = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 34.0, NULL, NULL)
+                                      : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 34.0, NULL);
+    CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0, NULL, NULL)
+                                    : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0, NULL);
+    FCDrawPreviewLine(context, @"实时预览", badge, ink, 22, 166, width - 44, 12);
+    if (_previewFont) {
+        FCDrawPreviewLine(context, @"让每个字，", headline, ink, 22, 112, width - 44, 23);
+        FCDrawPreviewLine(context, @"都有自己的性格。", headline, ink, 22, 68, width - 44, 23);
+        FCDrawPreviewLine(context, @"春风有信 · 0123456789", detail,
+                          [UIColor colorWithWhite:0.18 alpha:0.72], 22, 27, width - 44, 13);
+    } else {
+        FCDrawPreviewLine(context, @"导入字体后，", headline, ink, 22, 105, width - 44, 23);
+        FCDrawPreviewLine(context, @"在这里实时预览。", headline, ink, 22, 61, width - 44, 23);
     }
-    CGContextSetTextPosition(context, MAX(12, (CGRectGetWidth(rect) - width) / 2.0),
-        (CGRectGetHeight(rect) - ascent - descent) / 2.0 + descent);
-    CTLineDraw(line, context);
-    CFRelease(line);
-    if (fittedFont) CFRelease(fittedFont);
-    if (!_previewFont && font) CFRelease(font);
+    CFRelease(badge);
+    CFRelease(headline);
+    CFRelease(detail);
     CGContextRestoreGState(context);
 }
 
@@ -135,35 +154,48 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"";
-    self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
+    self.view.backgroundColor = [UIColor colorWithRed:0.976 green:0.969 blue:0.949 alpha:1.0];
 
-    UILabel *titleLabel = [self label:@"一键更换字体" size:32 color:UIColor.labelColor];
-    titleLabel.font = [UIFont systemFontOfSize:32 weight:UIFontWeightBold];
-    UILabel *featureLabel = [self label:@"通过原生切换语言环境，深度刷新系统字体缓存。" size:15 color:UIColor.secondaryLabelColor];
+    UILabel *titleLabel = [self label:@"FontChange" size:42 color:UIColor.labelColor];
+    titleLabel.font = [UIFont systemFontOfSize:42 weight:UIFontWeightHeavy];
+    titleLabel.textAlignment = NSTextAlignmentLeft;
+    UILabel *featureLabel = [self label:@"先预览，再把喜欢的字体应用到整个系统。" size:17 color:UIColor.secondaryLabelColor];
+    featureLabel.textAlignment = NSTextAlignmentLeft;
     UILabel *formatLabel = [self label:@"压缩包仅支持 ZIP 格式，暂不支持 7z、RAR。" size:13 color:UIColor.tertiaryLabelColor];
+    formatLabel.textAlignment = NSTextAlignmentLeft;
     self.mountLabel = [self label:@"当前挂载模式：正在检测…" size:13 color:UIColor.secondaryLabelColor];
+    UILabel *sectionLabel = [self label:@"选择字体方案" size:23 color:UIColor.labelColor];
+    sectionLabel.font = [UIFont systemFontOfSize:23 weight:UIFontWeightBold];
+    sectionLabel.textAlignment = NSTextAlignmentLeft;
     UIButton *primaryButton = [self button:@"主要字体包（全局覆盖，可选）" action:@selector(selectPrimary)];
+    [primaryButton setImage:[UIImage systemImageNamed:@"archivebox.fill"] forState:UIControlStateNormal];
     self.primaryLabel = [self label:@"尚未选择" size:13 color:UIColor.secondaryLabelColor];
     UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
+    [optionalButton setImage:[UIImage systemImageNamed:@"textformat"] forState:UIControlStateNormal];
     self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
     self.previewView = [[FCFontPreviewView alloc] init];
-    self.previewView.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    self.previewView.layer.cornerRadius = 14;
+    self.previewView.backgroundColor = [UIColor colorWithRed:1.0 green:0.78 blue:0.66 alpha:1.0];
+    self.previewView.layer.cornerRadius = 30;
     self.previewView.layer.masksToBounds = YES;
+    self.previewView.layer.borderWidth = 0;
     self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
+    [self.clearButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
 
     self.statusLabel = [self label:@"执行顺序：创建原生字体副本 → 覆盖字体 → 原生切换语言 → 重启用户空间" size:14 color:UIColor.secondaryLabelColor];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.statusLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    self.statusLabel.layer.cornerRadius = 12;
+    self.statusLabel.layer.cornerRadius = 18;
     self.statusLabel.layer.masksToBounds = YES;
+    self.statusLabel.layer.borderWidth = 0.5;
+    self.statusLabel.layer.borderColor = UIColor.separatorColor.CGColor;
 
     self.runButton = [self button:@"检查并开始执行" action:@selector(confirmRun)];
-    self.runButton.backgroundColor = UIColor.systemGreenColor;
+    self.runButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
+    [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleLabel, featureLabel, formatLabel, self.mountLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
-        self.previewView, self.clearButton,
+        titleLabel, featureLabel, formatLabel, self.mountLabel, self.previewView, sectionLabel,
+        primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -171,23 +203,47 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     stack.spacing = 14;
     [stack setCustomSpacing:8 afterView:titleLabel];
     [stack setCustomSpacing:6 afterView:featureLabel];
-    [stack setCustomSpacing:26 afterView:formatLabel];
+    [stack setCustomSpacing:20 afterView:formatLabel];
+    [stack setCustomSpacing:24 afterView:self.mountLabel];
+    [stack setCustomSpacing:26 afterView:self.previewView];
+    [stack setCustomSpacing:12 afterView:sectionLabel];
     [stack setCustomSpacing:8 afterView:primaryButton];
     [stack setCustomSpacing:8 afterView:optionalButton];
     [stack setCustomSpacing:20 afterView:self.clearButton];
     [stack setCustomSpacing:24 afterView:self.statusLabel];
-    [self.view addSubview:stack];
+    UIScrollView *scrollView = [[UIScrollView alloc] init];
+    scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    scrollView.alwaysBounceVertical = YES;
+    scrollView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    [self.view addSubview:scrollView];
+    [scrollView addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
-        [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
-        [stack.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
-        [primaryButton.heightAnchor constraintEqualToConstant:56],
-        [optionalButton.heightAnchor constraintEqualToConstant:56],
-        [self.previewView.heightAnchor constraintEqualToConstant:76],
+        [scrollView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
+        [scrollView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
+        [scrollView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [scrollView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.leadingAnchor constant:24],
+        [stack.trailingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.trailingAnchor constant:-24],
+        [stack.topAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.topAnchor constant:28],
+        [stack.bottomAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.bottomAnchor constant:-34],
+        [stack.widthAnchor constraintEqualToAnchor:scrollView.frameLayoutGuide.widthAnchor constant:-48],
+        [self.mountLabel.heightAnchor constraintGreaterThanOrEqualToConstant:34],
+        [primaryButton.heightAnchor constraintEqualToConstant:68],
+        [optionalButton.heightAnchor constraintEqualToConstant:68],
+        [self.previewView.heightAnchor constraintEqualToConstant:210],
         [self.clearButton.heightAnchor constraintEqualToConstant:48],
         [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:58],
-        [self.runButton.heightAnchor constraintEqualToConstant:58],
+        [self.runButton.heightAnchor constraintEqualToConstant:64],
     ]];
+    for (UIButton *selectionButton in @[primaryButton, optionalButton]) {
+        selectionButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.82];
+        [selectionButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
+        selectionButton.tintColor = UIColor.systemOrangeColor;
+        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        selectionButton.contentEdgeInsets = UIEdgeInsetsMake(0, 20, 0, 16);
+        selectionButton.layer.borderWidth = 0.5;
+        selectionButton.layer.borderColor = [UIColor colorWithWhite:0.75 alpha:0.45].CGColor;
+    }
     [self cleanupOldImports];
     [self updateClearButtonState];
     [self detectMountMode];
@@ -209,9 +265,31 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     button.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
     button.backgroundColor = UIColor.systemBlueColor;
-    button.layer.cornerRadius = 16;
+    button.layer.cornerRadius = 18;
+    button.tintColor = UIColor.whiteColor;
+    button.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
+    button.layer.shadowColor = UIColor.blackColor.CGColor;
+    button.layer.shadowOpacity = 0.12;
+    button.layer.shadowRadius = 8;
+    button.layer.shadowOffset = CGSizeMake(0, 4);
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [button addTarget:self action:@selector(buttonTouchDown:) forControlEvents:UIControlEventTouchDown];
+    [button addTarget:self action:@selector(buttonTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     return button;
+}
+
+- (void)buttonTouchDown:(UIButton *)button {
+    [UIView animateWithDuration:0.12 animations:^{
+        button.transform = CGAffineTransformMakeScale(0.975, 0.975);
+        button.alpha = 0.9;
+    }];
+}
+
+- (void)buttonTouchUp:(UIButton *)button {
+    [UIView animateWithDuration:0.18 animations:^{
+        button.transform = CGAffineTransformIdentity;
+        button.alpha = button.enabled ? 1.0 : 0.72;
+    }];
 }
 
 - (NSString *)importsDirectory {
@@ -272,6 +350,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     BOOL hasSelection = self.primaryPath.length > 0 || self.optionalPath.length > 0;
     self.clearButton.enabled = hasSelection;
     self.clearButton.backgroundColor = hasSelection ? UIColor.systemBlueColor : UIColor.systemGray4Color;
+    self.clearButton.tintColor = hasSelection ? UIColor.whiteColor : UIColor.systemGrayColor;
+    self.clearButton.layer.shadowOpacity = hasSelection ? 0.12 : 0.0;
     [self.clearButton setTitleColor:hasSelection ? UIColor.whiteColor : UIColor.systemGrayColor
                           forState:UIControlStateNormal];
     self.clearButton.alpha = hasSelection ? 1.0 : 0.72;
@@ -280,20 +360,31 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)detectMountMode {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
-        NSString *mode = status == 10 ? @"mnt" : (status == 11 ? @"bindfs" : @"unknown");
+        NSString *mode = status == 10 ? @"mnt" : (status == 11 ? @"bindfs" :
+            (status == 13 ? @"mnt-unmounted" : @"unknown"));
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mountMode = mode;
             if ([mode isEqualToString:@"mnt"]) {
                 self.mountLabel.text = @"当前挂载模式：mnt";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
+                self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
             } else if ([mode isEqualToString:@"bindfs"]) {
                 self.mountLabel.text = @"当前挂载模式：bindfs（mount_bindfs）";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
+                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
+            } else if ([mode isEqualToString:@"mnt-unmounted"]) {
+                self.mountLabel.text = @"当前挂载模式：mnt（Fonts 尚未创建）";
+                self.mountLabel.textColor = UIColor.systemOrangeColor;
+                self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
+                [self presentMissingMountWarningIfNeeded];
             } else {
                 self.mountLabel.text = @"当前挂载模式：未识别（执行时将再次检测）";
                 self.mountLabel.textColor = UIColor.secondaryLabelColor;
+                self.mountLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
                 [self presentMissingMountWarningIfNeeded];
             }
+            self.mountLabel.layer.cornerRadius = 12;
+            self.mountLabel.layer.masksToBounds = YES;
         });
     });
 }
@@ -307,10 +398,20 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             });
         return;
     }
+    BOOL canCreateMnt = [self.mountMode isEqualToString:@"mnt-unmounted"];
     UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"未检测到字体挂载环境"
-                         message:@"当前未检测到 mnt 或 bindfs 字体目录。请使用真皮版多巴胺提供的 mnt 挂载功能，或安装并配置 mount_bindfs 后再进行字体更换。"
+        alertControllerWithTitle:(canCreateMnt ? @"检测到 mnt 挂载环境" : @"未检测到字体挂载环境")
+                         message:(canCreateMnt
+                            ? @"真皮版多巴胺的 Fonts 挂载尚未创建，可由本 App 自动创建原生 mnt 字体副本并登记下次越狱自动挂载。"
+                            : @"当前未检测到 mnt 或 bindfs 字体目录。请使用真皮版多巴胺提供的 mnt 挂载功能，或安装并配置 mount_bindfs 后再进行字体更换。")
                   preferredStyle:UIAlertControllerStyleAlert];
+    if (canCreateMnt) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"自动创建 mnt 字体挂载"
+                                                style:UIAlertActionStyleDefault
+                                              handler:^(__unused UIAlertAction *action) {
+            [self createMntFontsMount];
+        }]];
+    }
     [alert addAction:[UIAlertAction actionWithTitle:@"不再提示"
                                             style:UIAlertActionStyleDefault
                                           handler:^(__unused UIAlertAction *action) {
@@ -321,6 +422,25 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
                                             style:UIAlertActionStyleCancel
                                           handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)createMntFontsMount {
+    self.mountLabel.text = @"当前挂载模式：正在创建 mnt 字体挂载…";
+    self.statusLabel.text = @"正在复制原生字体并创建 mnt 挂载，请稍候…";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        int status = [self runHelperArguments:@[@"--create-mnt-fonts"] wait:YES];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (status == 0) {
+                self.statusLabel.text = @"mnt 字体挂载创建完成，已登记下次越狱自动挂载。";
+                [self detectMountMode];
+            } else {
+                self.mountMode = @"mnt-unmounted";
+                self.mountLabel.text = @"当前挂载模式：mnt（Fonts 创建失败）";
+                self.mountLabel.textColor = UIColor.systemRedColor;
+                self.statusLabel.text = [NSString stringWithFormat:@"自动创建 mnt 字体挂载失败（%d）。", status];
+            }
+        });
+    });
 }
 
 - (void)handleExternalURL:(NSURL *)url {

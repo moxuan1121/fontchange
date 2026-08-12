@@ -290,6 +290,15 @@ static BOOL hasZqbbFontMountPreference(void) {
     return [rootlessPaths containsObject:@"/System/Library/Fonts"];
 }
 
+static BOOL hasZqbbMountEnvironment(void) {
+    NSString *mountConfig = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
+    NSString *systemInjectConfig = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/RootHide/cn.zqbb.inject.system.plist")];
+    return [NSFileManager.defaultManager fileExistsAtPath:mountConfig] ||
+        [NSFileManager.defaultManager fileExistsAtPath:systemInjectConfig];
+}
+
 static int detectMountMode(void) {
     BOOL prefersMnt = hasZqbbFontMountPreference();
     NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
@@ -297,7 +306,41 @@ static int detectMountMode(void) {
     if (prefersMnt && mntTarget) return 10;
     if (bindfsTarget) return 11;
     if (mntTarget) return 10;
+    if (hasZqbbMountEnvironment()) return 13;
     return 12;
+}
+
+static int createMntFontsMount(void) {
+    if (!hasZqbbMountEnvironment()) return 20;
+    NSString *configPath = [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
+    NSMutableDictionary *config = [NSMutableDictionary dictionaryWithContentsOfFile:configPath];
+    if (!config) config = [NSMutableDictionary dictionary];
+    NSMutableArray *paths = [config[@"path"] isKindOfClass:NSArray.class]
+        ? [config[@"path"] mutableCopy] : [NSMutableArray array];
+    BOOL addedPath = ![paths containsObject:@"/System/Library/Fonts"];
+    if (addedPath) [paths addObject:@"/System/Library/Fonts"];
+    config[@"path"] = paths;
+    NSError *directoryError = nil;
+    [NSFileManager.defaultManager createDirectoryAtPath:configPath.stringByDeletingLastPathComponent
+                            withIntermediateDirectories:YES attributes:nil error:&directoryError];
+    if (directoryError || ![config writeToFile:configPath atomically:YES]) return 21;
+
+    NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+    int mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
+    NSString *target = nil;
+    for (NSUInteger attempt = 0; attempt < 20; attempt++) {
+        target = validFontsTarget(@"/mnt/System/Library/Fonts");
+        if (target) break;
+        usleep(300000);
+    }
+    if (mountStatus == 0 && target) return 0;
+    if (addedPath) {
+        [paths removeObject:@"/System/Library/Fonts"];
+        config[@"path"] = paths;
+        [config writeToFile:configPath atomically:YES];
+    }
+    return mountStatus != 0 ? mountStatus : 22;
 }
 
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
@@ -574,6 +617,9 @@ int main(int argc, char *argv[]) {
         }
         if ([mode isEqualToString:@"--detect-mount"] && argc == 2) {
             return detectMountMode();
+        }
+        if ([mode isEqualToString:@"--create-mnt-fonts"] && argc == 2) {
+            return createMntFontsMount();
         }
         if ([mode isEqualToString:@"--prepare-preview"] && argc == 5) {
             return preparePreview([NSString stringWithUTF8String:argv[2]],
