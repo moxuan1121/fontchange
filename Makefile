@@ -15,20 +15,14 @@ FontChangeExperimental_RESOURCE_DIRS = App/Resources
 
 include $(THEOS_MAKE_PATH)/application.mk
 
-TOOL_NAME = fontchange-selfcontained-helper fontchange-bindfs
+TOOL_NAME = fontchange-selfcontained-helper
 fontchange-selfcontained-helper_FILES = Helper/main.m
 fontchange-selfcontained-helper_FRAMEWORKS = Foundation CoreFoundation
 fontchange-selfcontained-helper_CFLAGS = -fobjc-arc -Wall -Wextra
 fontchange-selfcontained-helper_CODESIGN_FLAGS = -SHelper/fontchange-helper.entitlements
 fontchange-selfcontained-helper_INSTALL_PATH = /usr/libexec
 
-fontchange-bindfs_FILES = MountTool/main.c
-fontchange-bindfs_CFLAGS = -Wall -Wextra
-fontchange-bindfs_CODESIGN_FLAGS = -SMountTool/fontchange-bindfs.entitlements
-fontchange-bindfs_INSTALL_PATH = /usr/libexec
-
 include $(THEOS_MAKE_PATH)/tool.mk
 
 after-stage::
 	chmod 6755 $(THEOS_STAGING_DIR)/usr/libexec/fontchange-selfcontained-helper
-	chmod 0755 $(THEOS_STAGING_DIR)/usr/libexec/fontchange-bindfs

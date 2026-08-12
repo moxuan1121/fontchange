@@ -396,25 +396,20 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)detectMountMode {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
-        NSString *mode = status == 14 ? @"self-contained" :
-            (status == 15 ? @"self-contained-ready" :
-            (status == 16 ? @"self-contained-new" :
+        NSString *mode = status == 14 ? @"zqbb-kernel" :
+            (status == 15 ? @"zqbb-ready" :
             (status == 10 ? @"mnt" : (status == 11 ? @"bindfs" :
-            (status == 13 ? @"mnt-unmounted" : @"unknown")))));
+            (status == 13 ? @"mnt-unmounted" : @"unknown"))));
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mountMode = mode;
-            if ([mode isEqualToString:@"self-contained"]) {
-                self.mountLabel.text = @"实验挂载：内置 bindfs 已启用";
+            if ([mode isEqualToString:@"zqbb-kernel"]) {
+                self.mountLabel.text = @"实验挂载：zqbb 内核凭据挂载已启用";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
                 self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
-            } else if ([mode isEqualToString:@"self-contained-ready"]) {
-                self.mountLabel.text = @"实验挂载：原生快照就绪，执行时自动挂载";
+            } else if ([mode isEqualToString:@"zqbb-ready"]) {
+                self.mountLabel.text = @"实验挂载：执行时由 jbctl 自动创建 /mnt 字体挂载";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
                 self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
-            } else if ([mode isEqualToString:@"self-contained-new"]) {
-                self.mountLabel.text = @"实验挂载：首次执行时创建独立原生快照";
-                self.mountLabel.textColor = UIColor.systemBlueColor;
-                self.mountLabel.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.10];
             } else if ([mode isEqualToString:@"mnt"]) {
                 self.mountLabel.text = @"当前挂载模式：mnt";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
