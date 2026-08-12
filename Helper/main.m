@@ -334,6 +334,9 @@ static int restoreSystemFonts(void) {
             ? @[@"internal", @"font_mount"]
             : @[@"internal", @"mount", @"/System/Library/Fonts"];
         int status = 0;
+        int genericStatus = 0;
+        int pathStatus = 0;
+        int umountStatus = 0;
         NSError *removeError = nil;
         BOOL removed = NO;
 
@@ -342,6 +345,16 @@ static int restoreSystemFonts(void) {
         // RootHide snapshot can be removed.
         for (NSUInteger attempt = 0; attempt < 12; attempt++) {
             status = runTool(jbctl, unmountArguments);
+            genericStatus = status;
+            // Try both jbctl entry points because older GenericMount builds
+            // may expose only one of them.
+            pathStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
+            NSString *umount = @"/sbin/umount";
+            if (![NSFileManager.defaultManager isExecutableFileAtPath:umount]) {
+                umount = [NSString stringWithUTF8String:jbroot("/sbin/umount")];
+            }
+            umountStatus = [NSFileManager.defaultManager isExecutableFileAtPath:umount]
+                ? runTool(umount, @[@"-f", @"/System/Library/Fonts"]) : 127;
             usleep(250000);
             removeError = nil;
             if ([NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError] ||
@@ -352,8 +365,11 @@ static int restoreSystemFonts(void) {
         }
 
         if (!removed) {
-            [@"恢复失败：GenericMount 字体快照仍被占用，无法删除。" writeToFile:resultPath
-                atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            NSString *message = [NSString stringWithFormat:
+                @"恢复失败：GenericMount 字体快照仍被占用，无法删除。font_unmount=%d，path_unmount=%d，umount=%d，文件错误=%ld（%@）。",
+                genericStatus, pathStatus, umountStatus, (long)removeError.code,
+                removeError.localizedDescription ?: @"未知错误"];
+            [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return status != 0 ? status : 81;
         }
 
