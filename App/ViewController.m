@@ -250,17 +250,18 @@ extern char **environ;
         [self.previewView clearFont];
         return;
     }
-    if ([source.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
-        if (![self.previewView loadFontAtPath:source]) {
-            self.statusLabel.text = @"字体已导入，但无法读取该 TTC 的预览字面。";
-        }
-        return;
-    }
     NSString *kind = slot == 2 ? @"optional" : @"primary";
-    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:@"preview.ttc"];
-    [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
+    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"preview-%lu.ttc", (unsigned long)generation]];
+    BOOL directTTC = [source.pathExtension.lowercaseString isEqualToString:@"ttc"];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        int status = [self runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
+        int status = 0;
+        if (directTTC) {
+            NSError *copyError = nil;
+            if (![NSFileManager.defaultManager copyItemAtPath:source toPath:destination error:&copyError]) status = 1;
+        } else {
+            status = [self runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != self.previewGeneration) return;
             if (status != 0 || ![self.previewView loadFontAtPath:destination]) {
