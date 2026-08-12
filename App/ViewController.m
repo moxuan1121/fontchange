@@ -114,15 +114,13 @@ static void FCDrawPreviewLine(CGContextRef context, NSString *text, CTFontRef so
                                       : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 34.0, NULL);
     CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0, NULL, NULL)
                                     : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0, NULL);
-    FCDrawPreviewLine(context, @"实时预览", badge, ink, 22, 166, width - 44, 12);
+    FCDrawPreviewLine(context, @"实时预览", badge, ink, 20, 104, width - 40, 11);
     if (_previewFont) {
-        FCDrawPreviewLine(context, @"让每个字，", headline, ink, 22, 112, width - 44, 23);
-        FCDrawPreviewLine(context, @"都有自己的性格。", headline, ink, 22, 68, width - 44, 23);
+        FCDrawPreviewLine(context, @"让每个字，都有自己的性格。", headline, ink, 20, 61, width - 40, 18);
         FCDrawPreviewLine(context, @"春风有信 · 0123456789", detail,
-                          [UIColor colorWithWhite:0.18 alpha:0.72], 22, 27, width - 44, 13);
+                          [UIColor colorWithWhite:0.18 alpha:0.72], 20, 23, width - 40, 12);
     } else {
-        FCDrawPreviewLine(context, @"导入字体后，", headline, ink, 22, 105, width - 44, 23);
-        FCDrawPreviewLine(context, @"在这里实时预览。", headline, ink, 22, 61, width - 44, 23);
+        FCDrawPreviewLine(context, @"导入字体后，在这里实时预览。", headline, ink, 20, 55, width - 40, 18);
     }
     CFRelease(badge);
     CFRelease(headline);
@@ -156,13 +154,9 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.title = @"";
     self.view.backgroundColor = [UIColor colorWithRed:0.976 green:0.969 blue:0.949 alpha:1.0];
 
-    UILabel *titleLabel = [self label:@"FontChange" size:42 color:UIColor.labelColor];
-    titleLabel.font = [UIFont systemFontOfSize:42 weight:UIFontWeightHeavy];
+    UILabel *titleLabel = [self label:@"FontChange" size:36 color:UIColor.labelColor];
+    titleLabel.font = [UIFont systemFontOfSize:36 weight:UIFontWeightHeavy];
     titleLabel.textAlignment = NSTextAlignmentLeft;
-    UILabel *featureLabel = [self label:@"先预览，再把喜欢的字体应用到整个系统。" size:17 color:UIColor.secondaryLabelColor];
-    featureLabel.textAlignment = NSTextAlignmentLeft;
-    UILabel *formatLabel = [self label:@"压缩包仅支持 ZIP 格式，暂不支持 7z、RAR。" size:13 color:UIColor.tertiaryLabelColor];
-    formatLabel.textAlignment = NSTextAlignmentLeft;
     self.mountLabel = [self label:@"当前挂载模式：正在检测…" size:13 color:UIColor.secondaryLabelColor];
     UILabel *sectionLabel = [self label:@"选择字体方案" size:23 color:UIColor.labelColor];
     sectionLabel.font = [UIFont systemFontOfSize:23 weight:UIFontWeightBold];
@@ -194,23 +188,21 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        titleLabel, featureLabel, formatLabel, self.mountLabel, self.previewView, sectionLabel,
+        titleLabel, self.mountLabel, self.previewView, sectionLabel,
         primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 14;
-    [stack setCustomSpacing:8 afterView:titleLabel];
-    [stack setCustomSpacing:6 afterView:featureLabel];
-    [stack setCustomSpacing:20 afterView:formatLabel];
-    [stack setCustomSpacing:24 afterView:self.mountLabel];
-    [stack setCustomSpacing:26 afterView:self.previewView];
-    [stack setCustomSpacing:12 afterView:sectionLabel];
-    [stack setCustomSpacing:8 afterView:primaryButton];
-    [stack setCustomSpacing:8 afterView:optionalButton];
-    [stack setCustomSpacing:20 afterView:self.clearButton];
-    [stack setCustomSpacing:24 afterView:self.statusLabel];
+    stack.spacing = 8;
+    [stack setCustomSpacing:10 afterView:titleLabel];
+    [stack setCustomSpacing:12 afterView:self.mountLabel];
+    [stack setCustomSpacing:12 afterView:self.previewView];
+    [stack setCustomSpacing:6 afterView:sectionLabel];
+    [stack setCustomSpacing:3 afterView:primaryButton];
+    [stack setCustomSpacing:3 afterView:optionalButton];
+    [stack setCustomSpacing:10 afterView:self.clearButton];
+    [stack setCustomSpacing:10 afterView:self.statusLabel];
     UIScrollView *scrollView = [[UIScrollView alloc] init];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     scrollView.alwaysBounceVertical = YES;
@@ -224,22 +216,22 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [scrollView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
         [stack.leadingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.trailingAnchor constant:-24],
-        [stack.topAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.topAnchor constant:28],
-        [stack.bottomAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.bottomAnchor constant:-34],
+        [stack.topAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.topAnchor constant:14],
+        [stack.bottomAnchor constraintEqualToAnchor:scrollView.contentLayoutGuide.bottomAnchor constant:-16],
         [stack.widthAnchor constraintEqualToAnchor:scrollView.frameLayoutGuide.widthAnchor constant:-48],
-        [self.mountLabel.heightAnchor constraintGreaterThanOrEqualToConstant:34],
-        [primaryButton.heightAnchor constraintEqualToConstant:68],
-        [optionalButton.heightAnchor constraintEqualToConstant:68],
-        [self.previewView.heightAnchor constraintEqualToConstant:210],
-        [self.clearButton.heightAnchor constraintEqualToConstant:48],
-        [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:58],
-        [self.runButton.heightAnchor constraintEqualToConstant:64],
+        [self.mountLabel.heightAnchor constraintGreaterThanOrEqualToConstant:32],
+        [primaryButton.heightAnchor constraintEqualToConstant:54],
+        [optionalButton.heightAnchor constraintEqualToConstant:54],
+        [self.previewView.heightAnchor constraintEqualToConstant:132],
+        [self.clearButton.heightAnchor constraintEqualToConstant:42],
+        [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [self.runButton.heightAnchor constraintEqualToConstant:56],
     ]];
     for (UIButton *selectionButton in @[primaryButton, optionalButton]) {
         selectionButton.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.82];
         [selectionButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
         selectionButton.tintColor = UIColor.systemOrangeColor;
-        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
         selectionButton.layer.borderWidth = 0.5;
         selectionButton.layer.borderColor = [UIColor colorWithWhite:0.75 alpha:0.45].CGColor;
     }
