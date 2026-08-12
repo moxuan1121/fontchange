@@ -152,8 +152,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0, NULL);
     FCDrawPreviewLine(context, @"实时预览", badge, ink, 20, 104, width - 40, 11);
     if (_previewFont) {
-        FCDrawPreviewLine(context, @"让每个字，都有自己的性格。", headline, ink, 20, 61, width - 40, 18);
-        FCDrawPreviewLine(context, @"春风有信 · 0123456789", detail,
+        FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61, width - 40, 18);
+        FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
                           [UIColor colorWithWhite:0.18 alpha:0.72], 20, 29, width - 40, 12);
         if (_displayName.length) {
             FCDrawPreviewName(context, _displayName, nameFont,
@@ -175,6 +175,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 @property(nonatomic) NSInteger pickingSlot;
 @property(nonatomic, copy) NSString *primaryPath;
 @property(nonatomic, copy) NSString *optionalPath;
+@property(nonatomic, copy) NSString *primaryDisplayName;
+@property(nonatomic, copy) NSString *optionalDisplayName;
 @property(nonatomic, copy) NSString *mountMode;
 @property(nonatomic, strong) UILabel *primaryLabel;
 @property(nonatomic, strong) UILabel *optionalLabel;
@@ -216,25 +218,23 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
     [self.clearButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
 
-    self.statusLabel = [self label:@"执行顺序：创建原生字体副本 → 覆盖字体 → 原生切换语言 → 重启用户空间" size:14 color:UIColor.secondaryLabelColor];
+    self.statusLabel = [self label:@"运行日志\n准备就绪，请选择字体文件。" size:14 color:UIColor.secondaryLabelColor];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.statusLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     self.statusLabel.layer.cornerRadius = 18;
     self.statusLabel.layer.masksToBounds = YES;
     self.statusLabel.layer.borderWidth = 0.5;
     self.statusLabel.layer.borderColor = UIColor.separatorColor.CGColor;
+    [self.statusLabel setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
+    [self.statusLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
 
     self.runButton = [self button:@"检查并开始执行" action:@selector(confirmRun)];
     self.runButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
-    UIView *flexibleSpace = [[UIView alloc] init];
-    [flexibleSpace setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
-    [flexibleSpace setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
-
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         titleLabel, self.mountLabel, self.previewView, sectionLabel,
         primaryButton, self.primaryLabel, optionalButton, self.optionalLabel, self.clearButton,
-        self.statusLabel, flexibleSpace, self.runButton
+        self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
@@ -332,6 +332,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)clearSelections {
     self.primaryPath = nil;
     self.optionalPath = nil;
+    self.primaryDisplayName = nil;
+    self.optionalDisplayName = nil;
     self.previewGeneration++;
     [self.previewView clearFont];
     self.primaryLabel.text = @"尚未选择";
@@ -349,7 +351,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [self.previewView clearFont];
         return;
     }
-    [self.previewView setDisplayName:source.lastPathComponent.stringByDeletingPathExtension];
+    NSString *displayName = slot == 2 ? self.optionalDisplayName : self.primaryDisplayName;
+    [self.previewView setDisplayName:displayName ?: source.lastPathComponent.stringByDeletingPathExtension];
     NSString *kind = slot == 2 ? @"optional" : @"primary";
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
         [NSString stringWithFormat:@"preview-%lu.ttc", (unsigned long)generation]];
@@ -568,11 +571,13 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     }
     if (self.pickingSlot == 1) {
         self.primaryPath = destination;
+        self.primaryDisplayName = source.lastPathComponent.stringByDeletingPathExtension;
         self.primaryLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"主要字体包导入完成：%@。尚未执行替换。", source.lastPathComponent];
         [self refreshFontPreviewForSlot:1];
     } else {
         self.optionalPath = destination;
+        self.optionalDisplayName = source.lastPathComponent.stringByDeletingPathExtension;
         self.optionalLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
         [self refreshFontPreviewForSlot:2];
@@ -619,8 +624,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.runButton.backgroundColor = UIColor.systemGreenColor;
     [self.runButton setTitle:@"正在执行…" forState:UIControlStateNormal];
     self.statusLabel.text = self.primaryPath.length
-        ? @"正在解压、验证并全局覆盖字体…"
-        : @"正在验证并单独替换 SFUISoft.ttc…";
+        ? @"运行日志\n• 正在解压并验证字体包\n• 准备全局覆盖字体…"
+        : @"运行日志\n• 正在验证 SFUISoft.ttc\n• 准备替换锁屏字体…";
     BOOL sfuiOnly = self.primaryPath.length == 0;
     NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
@@ -630,6 +635,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             [self cleanupOldImports];
             self.primaryPath = nil;
             self.optionalPath = nil;
+            self.primaryDisplayName = nil;
+            self.optionalDisplayName = nil;
             self.previewGeneration++;
             [self.previewView clearFont];
             self.primaryLabel.text = @"尚未选择";
@@ -645,8 +652,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
                 return;
             }
             self.statusLabel.text = sfuiOnly
-                ? @"SFUISoft 替换完成，正在清理字体缓存，即将重启用户空间…"
-                : @"字体覆盖完成，正在清理字体缓存，即将重启用户空间…";
+                ? @"运行日志\n✓ SFUISoft 替换完成\n• 正在刷新语言缓存\n• 即将重启用户空间…"
+                : @"运行日志\n✓ 全局字体覆盖完成\n• 正在刷新语言缓存\n• 即将重启用户空间…";
             NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
             NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
             if (![state writeToFile:statePath atomically:YES]) {
