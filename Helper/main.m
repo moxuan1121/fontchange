@@ -13,6 +13,22 @@ extern char **environ;
 
 static NSString *const FCReportPath = @"/var/mobile/Documents/fontchange_last_result.txt";
 
+static NSString *systemFontMarkerPath(void) {
+    return [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/Preferences/com.moxuan1121.fontchange.system-fonts")];
+}
+
+static void setSystemFontMarker(BOOL original) {
+    NSString *path = systemFontMarkerPath();
+    if (original) {
+        [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent
+                                withIntermediateDirectories:YES attributes:nil error:nil];
+        [@"original" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    } else {
+        [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+    }
+}
+
 static void writeReport(NSString *message) {
     [message writeToFile:FCReportPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
@@ -390,6 +406,7 @@ static int restoreSystemFonts(void) {
             // even though the kernel mount has completed. The mounted snapshot
             // is the authoritative success condition.
             if (validFontsTarget(@"/mnt/System/Library/Fonts")) {
+                setSystemFontMarker(YES);
                 [@"恢复成功：已删除旧 GenericMount 字体快照，并从 /System/Library/Fonts 重新生成原生字体。"
                     writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
                 return 0;
@@ -408,6 +425,7 @@ static int restoreSystemFonts(void) {
         int status = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
         if (status != 0) return status;
         if (validFontsTarget(@"/bindfs/System/Library/Fonts")) {
+            setSystemFontMarker(YES);
             [@"恢复成功：bindfs 已重新复制 /System/Library/Fonts 原生字体。" writeToFile:resultPath
                 atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return 0;
@@ -652,6 +670,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         sfuiOnly ? @"；仅替换 SFUISoft.ttc" :
             (optionalSFUI ? @"；SFUISoft.ttc 使用可选字体" : @"；全部字体使用主要字体包"),
         saveNote]);
+    setSystemFontMarker(NO);
     [NSFileManager.defaultManager removeItemAtPath:work error:nil];
     return 0;
 
@@ -735,6 +754,9 @@ int main(int argc, char *argv[]) {
         }
         if ([mode isEqualToString:@"--restore-system-fonts"] && argc == 2) {
             return restoreSystemFonts();
+        }
+        if ([mode isEqualToString:@"--system-font-state"] && argc == 2) {
+            return [NSFileManager.defaultManager fileExistsAtPath:systemFontMarkerPath()] ? 0 : 1;
         }
         if ([mode isEqualToString:@"--detect-mount"] && argc == 2) {
             return detectMountMode();

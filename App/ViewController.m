@@ -638,6 +638,16 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 }
 
 - (void)confirmRestoreSystemFonts {
+    if ([self runHelperArguments:@[@"--system-font-state"] wait:YES] == 0) {
+        UIAlertController *alreadyOriginal = [UIAlertController
+            alertControllerWithTitle:@"当前已经是系统字体"
+                             message:@"上次恢复后尚未通过 FontChange 覆盖其他字体，无需重复恢复、切换语言或重启用户空间。"
+                      preferredStyle:UIAlertControllerStyleAlert];
+        [alreadyOriginal addAction:[UIAlertAction actionWithTitle:@"好"
+                                                            style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alreadyOriginal animated:YES completion:nil];
+        return;
+    }
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:@"恢复系统字体"
                          message:@"将丢弃当前已覆盖的自定义字体，重新生成原生字体目录。随后会刷新语言缓存并重启用户空间。"
