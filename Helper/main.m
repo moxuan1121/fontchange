@@ -310,6 +310,8 @@ static BOOL hasZqbbMountEnvironment(void) {
 }
 
 static int restoreSystemFonts(void) {
+    NSString *resultPath = @"/var/mobile/Documents/fontchange_last_result.txt";
+    [NSFileManager.defaultManager removeItemAtPath:resultPath error:nil];
     NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
     BOOL prefersMnt = hasZqbbFontMountPreference();
@@ -317,23 +319,33 @@ static int restoreSystemFonts(void) {
     if ((prefersMnt && mntTarget) || (mntTarget && !bindfsTarget)) {
         NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
         int status = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
-        if (status != 0) return status;
 
         NSError *removeError = nil;
         // validFontsTarget returns the real RootHide snapshot path below
         // .jbroot-*/mnt. Removing the literal /mnt path leaves GenericMount's
         // snapshot untouched and simply remounts the old customized fonts.
         [NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError];
-        if ([NSFileManager.defaultManager fileExistsAtPath:mntTarget]) return 81;
+        if ([NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
+            [@"恢复失败：GenericMount 字体快照仍被占用，无法删除。" writeToFile:resultPath
+                atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            return status != 0 ? status : 81;
+        }
 
         status = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
         for (NSUInteger attempt = 0; attempt < 30; attempt++) {
             // Some GenericMount/jbctl builds return a non-zero command status
             // even though the kernel mount has completed. The mounted snapshot
             // is the authoritative success condition.
-            if (validFontsTarget(@"/mnt/System/Library/Fonts")) return 0;
+            if (validFontsTarget(@"/mnt/System/Library/Fonts")) {
+                [@"恢复成功：已删除旧 GenericMount 字体快照，并从 /System/Library/Fonts 重新生成原生字体。"
+                    writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                return 0;
+            }
             usleep(300000);
         }
+        NSString *message = [NSString stringWithFormat:
+            @"恢复失败：GenericMount 未重新生成有效字体目录（命令状态 %d）。", status];
+        [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         return status != 0 ? status : 82;
     }
 
@@ -342,7 +354,12 @@ static int restoreSystemFonts(void) {
         if (![NSFileManager.defaultManager isExecutableFileAtPath:mountBindfs]) return 83;
         int status = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
         if (status != 0) return status;
-        return validFontsTarget(@"/bindfs/System/Library/Fonts") ? 0 : 84;
+        if (validFontsTarget(@"/bindfs/System/Library/Fonts")) {
+            [@"恢复成功：bindfs 已重新复制 /System/Library/Fonts 原生字体。" writeToFile:resultPath
+                atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            return 0;
+        }
+        return 84;
     }
     return 85;
 }
