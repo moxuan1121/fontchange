@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME = FontChange
 FontChange_FILES = App/main.m App/AppDelegate.m App/ViewController.m
-FontChange_FRAMEWORKS = UIKit Foundation CoreFoundation UniformTypeIdentifiers
+FontChange_FRAMEWORKS = UIKit Foundation CoreFoundation CoreText UniformTypeIdentifiers
 FontChange_CFLAGS = -fobjc-arc -Wall -Wextra
 FontChange_CODESIGN_FLAGS = -SApp/FontChange.entitlements
 FontChange_RESOURCE_DIRS = App/Resources

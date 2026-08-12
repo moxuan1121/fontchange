@@ -213,6 +213,46 @@ static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
     return matches.firstObject;
 }
 
+static int preparePreview(NSString *kind, NSString *zipPath, NSString *destination) {
+    NSString *temporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
+    NSString *work = [temporary stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"com.moxuan1121.fontchange-preview-%@", NSUUID.UUID.UUIDString]];
+    NSString *failure = nil;
+    NSError *directoryError = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:work
+                                 withIntermediateDirectories:YES
+                                                  attributes:nil
+                                                       error:&directoryError]) return 1;
+    if (!extractArchive(zipPath, work, &failure)) {
+        [NSFileManager.defaultManager removeItemAtPath:work error:nil];
+        return 2;
+    }
+    NSString *source = nil;
+    if ([kind isEqualToString:@"primary"]) {
+        NSString *root = findPrimaryRoot(work, &failure);
+        if (root) source = [root stringByAppendingPathComponent:@"PingFang.ttc"];
+    } else if ([kind isEqualToString:@"optional"]) {
+        source = findOptionalSFUI(work, &failure);
+    }
+    if (!source) {
+        [NSFileManager.defaultManager removeItemAtPath:work error:nil];
+        return 3;
+    }
+    NSString *parent = destination.stringByDeletingLastPathComponent;
+    [NSFileManager.defaultManager createDirectoryAtPath:parent
+                            withIntermediateDirectories:YES
+                                             attributes:nil
+                                                  error:nil];
+    NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
+    int status = runTool(cp, @[@"-f", source, destination]);
+    if (status == 0) {
+        chmod(destination.fileSystemRepresentation, 0644);
+        chown(destination.fileSystemRepresentation, 501, 501);
+    }
+    [NSFileManager.defaultManager removeItemAtPath:work error:nil];
+    return status;
+}
+
 static NSString *validFontsTarget(NSString *relative) {
     NSString *path = [NSString stringWithUTF8String:jbroot(relative.UTF8String)];
     BOOL directory = NO;
@@ -542,6 +582,10 @@ int main(int argc, char *argv[]) {
         }
         if ([mode isEqualToString:@"--detect-mount"] && argc == 2) {
             return detectMountMode();
+        }
+        if ([mode isEqualToString:@"--prepare-preview"] && argc == 5) {
+            return preparePreview([NSString stringWithUTF8String:argv[2]],
+                [NSString stringWithUTF8String:argv[3]], [NSString stringWithUTF8String:argv[4]]);
         }
         if ([mode isEqualToString:@"--preflight"] && argc == 3) {
             return preflight();

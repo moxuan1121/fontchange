@@ -6,8 +6,70 @@
 #import <sys/wait.h>
 #import <roothide.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <CoreText/CoreText.h>
 
 extern char **environ;
+
+@interface FCFontPreviewView : UIView
+- (BOOL)loadFontAtPath:(NSString *)path;
+- (void)clearFont;
+@end
+
+@implementation FCFontPreviewView {
+    CTFontRef _previewFont;
+}
+
+- (void)dealloc {
+    if (_previewFont) CFRelease(_previewFont);
+}
+
+- (BOOL)loadFontAtPath:(NSString *)path {
+    if (_previewFont) {
+        CFRelease(_previewFont);
+        _previewFont = NULL;
+    }
+    CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
+    if (descriptors && CFArrayGetCount(descriptors) > 0) {
+        CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, 0);
+        _previewFont = CTFontCreateWithFontDescriptor(descriptor, 27.0, NULL);
+    }
+    if (descriptors) CFRelease(descriptors);
+    [self setNeedsDisplay];
+    return _previewFont != NULL;
+}
+
+- (void)clearFont {
+    if (_previewFont) {
+        CFRelease(_previewFont);
+        _previewFont = NULL;
+    }
+    [self setNeedsDisplay];
+}
+
+- (void)drawRect:(CGRect)rect {
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    CGContextSaveGState(context);
+    CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
+    CGContextScaleCTM(context, 1, -1);
+    CTFontRef font = _previewFont ?: CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 20.0, NULL);
+    NSString *text = _previewFont ? @"中文字体预览  Aa Bb  0123456789" : @"导入字体后将在这里显示预览";
+    NSDictionary *attributes = @{
+        (__bridge id)kCTFontAttributeName: (__bridge id)font,
+        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)UIColor.labelColor.CGColor
+    };
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+    CGFloat ascent = 0, descent = 0;
+    double width = CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
+    CGContextSetTextPosition(context, MAX(12, (CGRectGetWidth(rect) - width) / 2.0),
+        (CGRectGetHeight(rect) - ascent - descent) / 2.0 + descent);
+    CTLineDraw(line, context);
+    CFRelease(line);
+    if (!_previewFont && font) CFRelease(font);
+    CGContextRestoreGState(context);
+}
+
+@end
 
 @interface ViewController () <UIDocumentPickerDelegate>
 @property(nonatomic) NSInteger pickingSlot;
@@ -22,6 +84,8 @@ extern char **environ;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIButton *runButton;
 @property(nonatomic, strong) UIButton *clearButton;
+@property(nonatomic, strong) FCFontPreviewView *previewView;
+@property(nonatomic) NSUInteger previewGeneration;
 @end
 
 @implementation ViewController
@@ -41,6 +105,10 @@ extern char **environ;
     UIButton *optionalButton = [self button:@"选择用于 SFUISoft 的字体包 / TTC 文件" action:@selector(selectOptional)];
     self.optionalLabel = [self label:@"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）" size:13 color:UIColor.secondaryLabelColor];
     self.originalLabel = [self label:@"mnt 原生字体恢复包：未选择（仅全局覆盖时使用）" size:13 color:UIColor.secondaryLabelColor];
+    self.previewView = [[FCFontPreviewView alloc] init];
+    self.previewView.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    self.previewView.layer.cornerRadius = 14;
+    self.previewView.layer.masksToBounds = YES;
     self.clearButton = [self button:@"清空已选择的字体包" action:@selector(clearSelections)];
 
     self.statusLabel = [self label:@"执行顺序：创建原生字体副本 → 覆盖字体 → 原生切换语言 → 重启用户空间" size:14 color:UIColor.secondaryLabelColor];
@@ -54,7 +122,7 @@ extern char **environ;
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         titleLabel, featureLabel, formatLabel, self.mountLabel, primaryButton, self.primaryLabel, optionalButton, self.optionalLabel,
-        self.originalLabel, self.clearButton,
+        self.originalLabel, self.previewView, self.clearButton,
         self.statusLabel, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -74,6 +142,7 @@ extern char **environ;
         [stack.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
         [primaryButton.heightAnchor constraintEqualToConstant:56],
         [optionalButton.heightAnchor constraintEqualToConstant:56],
+        [self.previewView.heightAnchor constraintEqualToConstant:76],
         [self.clearButton.heightAnchor constraintEqualToConstant:48],
         [self.statusLabel.heightAnchor constraintGreaterThanOrEqualToConstant:58],
         [self.runButton.heightAnchor constraintEqualToConstant:58],
@@ -121,12 +190,42 @@ extern char **environ;
     self.primaryPath = nil;
     self.optionalPath = nil;
     self.originalPath = nil;
+    self.previewGeneration++;
+    [self.previewView clearFont];
     self.primaryLabel.text = @"尚未选择";
     self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
     self.originalLabel.text = @"mnt 原生字体恢复包：未选择（仅全局覆盖时使用）";
     [self cleanupOldImports];
     [self updateClearButtonState];
     self.statusLabel.text = @"已清空所选字体包；系统中已应用的字体不会受到影响。";
+}
+
+- (void)refreshFontPreview {
+    self.previewGeneration++;
+    NSUInteger generation = self.previewGeneration;
+    NSString *source = self.optionalPath.length ? self.optionalPath : self.primaryPath;
+    if (!source.length) {
+        [self.previewView clearFont];
+        return;
+    }
+    if ([source.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
+        if (![self.previewView loadFontAtPath:source]) {
+            self.statusLabel.text = @"字体已导入，但无法读取该 TTC 的预览字面。";
+        }
+        return;
+    }
+    NSString *kind = self.optionalPath.length ? @"optional" : @"primary";
+    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:@"preview.ttc"];
+    [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        int status = [self runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self.previewGeneration) return;
+            if (status != 0 || ![self.previewView loadFontAtPath:destination]) {
+                self.statusLabel.text = @"字体已导入，但未能生成字体预览；不影响正常替换。";
+            }
+        });
+    });
 }
 
 - (void)updateClearButtonState {
@@ -286,6 +385,7 @@ extern char **environ;
         self.primaryPath = destination;
         self.primaryLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"主要字体包导入完成：%@。尚未执行替换。", source.lastPathComponent];
+        [self refreshFontPreview];
         [self offerOriginalFontRestoreIfNeeded];
     } else if (self.pickingSlot == 3) {
         self.originalPath = destination;
@@ -295,6 +395,7 @@ extern char **environ;
         self.optionalPath = destination;
         self.optionalLabel.text = source.lastPathComponent;
         self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
+        [self refreshFontPreview];
     }
     [self updateClearButtonState];
 }
@@ -351,6 +452,8 @@ extern char **environ;
             self.primaryPath = nil;
             self.optionalPath = nil;
             self.originalPath = nil;
+            self.previewGeneration++;
+            [self.previewView clearFont];
             self.primaryLabel.text = @"尚未选择";
             self.optionalLabel.text = @"留空时全部使用主要字体包，并自动读取其中的 SFUISoft.ttc（用于自定义锁屏时钟字体）";
             self.originalLabel.text = @"mnt 原生字体恢复包：未选择（仅全局覆盖时使用）";
