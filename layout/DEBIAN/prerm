@@ -1,9 +1,12 @@
 #!/bin/sh
 set -e
 
+if [ -x /usr/libexec/fontchange-bindfs ]; then
+    /usr/libexec/fontchange-bindfs unmount || true
+fi
+
 if command -v uicache >/dev/null 2>&1; then
-    uicache -u /Applications/FontChange.app || true
+    uicache -u /Applications/FontChangeExperimental.app || true
 fi
 
 exit 0
-

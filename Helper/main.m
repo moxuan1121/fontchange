@@ -216,7 +216,7 @@ static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
 static int preparePreview(NSString *kind, NSString *zipPath, NSString *destination) {
     NSString *temporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [temporary stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"com.moxuan1121.fontchange-preview-%@", NSUUID.UUID.UUIDString]];
+        [NSString stringWithFormat:@"com.moxuan1121.fontchange.selfcontained-preview-%@", NSUUID.UUID.UUIDString]];
     NSString *failure = nil;
     NSError *directoryError = nil;
     if (![NSFileManager.defaultManager createDirectoryAtPath:work
@@ -264,6 +264,68 @@ static NSString *validFontsTarget(NSString *relative) {
     return nil;
 }
 
+static NSString *selfContainedFontsPath(void) {
+    return [NSString stringWithUTF8String:
+        jbroot("/var/lib/fontchange-selfcontained/System/Library/Fonts")];
+}
+
+static NSString *selfContainedMountTool(void) {
+    return [NSString stringWithUTF8String:jbroot("/usr/libexec/fontchange-bindfs")];
+}
+
+static NSString *ensureSelfContainedFonts(NSString **failure) {
+    NSString *mirror = selfContainedFontsPath();
+    NSString *existing = validFontsTarget(@"/var/lib/fontchange-selfcontained/System/Library/Fonts");
+    NSString *tool = selfContainedMountTool();
+
+    if (!existing) {
+        NSString *details = nil;
+        int unmountStatus = runToolCapturingOutput(tool, @[@"unmount"], &details);
+        if (unmountStatus != 0) {
+            if (failure) *failure = [NSString stringWithFormat:
+                @"无法卸载现有字体映射（%d）：%@", unmountStatus,
+                details.length ? details : @"没有错误详情"];
+            return nil;
+        }
+        NSError *removeError = nil;
+        [NSFileManager.defaultManager removeItemAtPath:mirror error:&removeError];
+        NSError *createError = nil;
+        if (![NSFileManager.defaultManager createDirectoryAtPath:mirror
+                                     withIntermediateDirectories:YES
+                                                      attributes:nil
+                                                           error:&createError]) {
+            if (failure) *failure = [NSString stringWithFormat:@"无法创建独立字体镜像：%@",
+                createError.localizedDescription ?: @"未知错误"];
+            return nil;
+        }
+        NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
+        int copyStatus = runToolCapturingOutput(cp,
+            @[@"-Rp", @"/System/Library/Fonts/.", mirror], &details);
+        if (copyStatus != 0 || !validFontsTarget(@"/var/lib/fontchange-selfcontained/System/Library/Fonts")) {
+            [NSFileManager.defaultManager removeItemAtPath:mirror error:nil];
+            if (failure) *failure = [NSString stringWithFormat:
+                @"创建原生字体快照失败（%d）：%@", copyStatus,
+                details.length ? details : @"复制后目录校验失败"];
+            return nil;
+        }
+    }
+
+    NSString *details = nil;
+    int mountStatus = runToolCapturingOutput(tool, @[@"mount", mirror], &details);
+    if (mountStatus != 0) {
+        if (failure) *failure = [NSString stringWithFormat:@"独立 bindfs 挂载失败（%d）：%@",
+            mountStatus, details.length ? details : @"没有错误详情"];
+        return nil;
+    }
+    return mirror;
+}
+
+static int autoMountSelfContainedFonts(void) {
+    NSString *mirror = validFontsTarget(@"/var/lib/fontchange-selfcontained/System/Library/Fonts");
+    if (!mirror) return 0;
+    return runTool(selfContainedMountTool(), @[@"mount", mirror]);
+}
+
 static BOOL mergeDirectory(NSString *source, NSString *destination, NSString **failure) {
     NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
     int status = runTool(cp, @[@"-Rf", [source stringByAppendingPathComponent:@"."], destination]);
@@ -300,6 +362,12 @@ static BOOL hasZqbbMountEnvironment(void) {
 }
 
 static int detectMountMode(void) {
+    NSString *selfContained = validFontsTarget(@"/var/lib/fontchange-selfcontained/System/Library/Fonts");
+    if (selfContained) {
+        int mounted = runTool(selfContainedMountTool(), @[@"status", selfContained]);
+        return mounted == 0 ? 14 : 15;
+    }
+    if ([NSFileManager.defaultManager fileExistsAtPath:selfContainedMountTool()]) return 16;
     BOOL prefersMnt = hasZqbbFontMountPreference();
     NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
@@ -347,7 +415,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     BOOL sfuiOnly = [primaryZip isEqualToString:@"-"];
     NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"com.moxuan1121.fontchange-%@", NSUUID.UUID.UUIDString]];
+        [NSString stringWithFormat:@"com.moxuan1121.fontchange.selfcontained-%@", NSUUID.UUID.UUIDString]];
     NSString *primaryExtract = [work stringByAppendingPathComponent:@"primary"];
     NSString *optionalExtract = [work stringByAppendingPathComponent:@"optional"];
 
@@ -364,8 +432,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *saveDetails = nil;
     NSString *saveNote = @"";
     NSString *mountScheme = nil;
+    BOOL usesSelfContained = YES;
     NSString *mountSaveMarker = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/Preferences/com.moxuan1121.fontchange.mount-s.done")];
+        jbroot("/var/mobile/Library/Preferences/com.moxuan1121.fontchange.selfcontained.mount-s.done")];
     NSError *directoryError = nil;
     if (!sfuiOnly) {
         if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
@@ -409,10 +478,14 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
     }
 
+    target = ensureSelfContainedFonts(&failure);
+    if (!target) goto fail;
+    usesBindfs = YES;
+
     prefersMnt = hasZqbbFontMountPreference();
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    if (prefersMnt && mntTarget && !sfuiOnly) {
+    if (!target && prefersMnt && mntTarget && !sfuiOnly) {
         NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
         int unmountStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
         if (unmountStatus != 0) {
@@ -471,7 +544,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         goto fail;
     }
 
-    BOOL mountSaveDone = [NSFileManager.defaultManager fileExistsAtPath:mountSaveMarker];
+    BOOL mountSaveDone = usesSelfContained || [NSFileManager.defaultManager fileExistsAtPath:mountSaveMarker];
     if (usesBindfs && !mountSaveDone) {
         NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
         NSString *saveCommand = [NSString stringWithFormat:@"\"%@\" -s /System/Library/Fonts", mountBindfs];
@@ -519,7 +592,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
         target = remountedTarget;
     }
-    if (sfuiOnly && [target containsString:@"/bindfs/"]) {
+    if (usesSelfContained) {
+        mountScheme = @"内置 bindfs（独立原生快照与自动挂载）";
+    } else if (sfuiOnly && [target containsString:@"/bindfs/"]) {
         mountScheme = @"bindfs（复用现有目录，未执行 --copy 或 -s）";
     } else if ([target containsString:@"/bindfs/"]) {
         if (mountSaveDone) mountScheme = @"bindfs（已执行 --copy，-s 已登记）";
@@ -620,6 +695,9 @@ int main(int argc, char *argv[]) {
         }
         if ([mode isEqualToString:@"--create-mnt-fonts"] && argc == 2) {
             return createMntFontsMount();
+        }
+        if ([mode isEqualToString:@"--auto-mount"] && argc == 2) {
+            return autoMountSelfContainedFonts();
         }
         if ([mode isEqualToString:@"--prepare-preview"] && argc == 5) {
             return preparePreview([NSString stringWithUTF8String:argv[2]],

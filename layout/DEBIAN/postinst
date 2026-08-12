@@ -1,10 +1,12 @@
 #!/bin/sh
 set -e
 
-chmod 6755 /usr/libexec/fontchange-helper
-chown root:wheel /usr/libexec/fontchange-helper
+chmod 6755 /usr/libexec/fontchange-selfcontained-helper
+chown root:wheel /usr/libexec/fontchange-selfcontained-helper
+chmod 0755 /usr/libexec/fontchange-bindfs
+chown root:wheel /usr/libexec/fontchange-bindfs
 if command -v uicache >/dev/null 2>&1; then
-    uicache -p /Applications/FontChange.app || true
+    uicache -p /Applications/FontChangeExperimental.app || true
 fi
 
 exit 0

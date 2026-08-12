@@ -1,9 +1,10 @@
-Package: com.moxuan1121.fontchange
-Name: Font Package Installer
-Version: 2.0.0-alpha44
+Package: com.moxuan1121.fontchange.selfcontained
+Name: FontChange Self-Contained Experimental
+Version: 2.1.0-selfcontained-alpha1
 Architecture: iphoneos-arm64e
-Description: Imports ZIP font packages, refreshes the bindfs or mnt font copy, applies fonts, switches language natively, and reboots userspace.
+Description: Experimental self-contained font manager build with an isolated app, helper, and preferences namespace.
 Maintainer: moxuan1121
 Author: moxuan1121
 Section: Utilities
 Depends: firmware (>= 15.0), unzip
+Conflicts: com.nan.bindfs, cn.zqbb.hello.mnt, com.hmmzzz.fontmanager
