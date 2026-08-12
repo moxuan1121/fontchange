@@ -337,6 +337,7 @@ static int restoreSystemFonts(void) {
         int genericStatus = 0;
         int pathStatus = 0;
         int umountStatus = 0;
+        int rmStatus = 0;
         NSError *removeError = nil;
         BOOL removed = NO;
 
@@ -362,12 +363,22 @@ static int restoreSystemFonts(void) {
                 removed = YES;
                 break;
             }
+            // RootHide may deny NSFileManager access to another translated
+            // .jbroot path even for this setuid helper. Its platform /bin/rm
+            // is the same mechanism already used by the font copy workflow
+            // and can operate on the resolved snapshot path.
+            NSString *rm = [NSString stringWithUTF8String:jbroot("/bin/rm")];
+            rmStatus = runTool(rm, @[@"-rf", @"--", mntTarget]);
+            if (![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
+                removed = YES;
+                break;
+            }
         }
 
         if (!removed) {
             NSString *message = [NSString stringWithFormat:
-                @"恢复失败：GenericMount 字体快照仍被占用，无法删除。font_unmount=%d，path_unmount=%d，umount=%d，文件错误=%ld（%@）。",
-                genericStatus, pathStatus, umountStatus, (long)removeError.code,
+                @"恢复失败：无法删除 GenericMount 字体快照。font_unmount=%d，path_unmount=%d，umount=%d，rm=%d，文件错误=%ld（%@）。",
+                genericStatus, pathStatus, umountStatus, rmStatus, (long)removeError.code,
                 removeError.localizedDescription ?: @"未知错误"];
             [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return status != 0 ? status : 81;
