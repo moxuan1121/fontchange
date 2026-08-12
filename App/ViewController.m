@@ -240,7 +240,6 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [selectionButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
         selectionButton.tintColor = UIColor.systemOrangeColor;
         selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        selectionButton.contentEdgeInsets = UIEdgeInsetsMake(0, 20, 0, 16);
         selectionButton.layer.borderWidth = 0.5;
         selectionButton.layer.borderColor = [UIColor colorWithWhite:0.75 alpha:0.45].CGColor;
     }
@@ -267,7 +266,6 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     button.backgroundColor = UIColor.systemBlueColor;
     button.layer.cornerRadius = 18;
     button.tintColor = UIColor.whiteColor;
-    button.imageEdgeInsets = UIEdgeInsetsMake(0, -6, 0, 6);
     button.layer.shadowColor = UIColor.blackColor.CGColor;
     button.layer.shadowOpacity = 0.12;
     button.layer.shadowRadius = 8;
