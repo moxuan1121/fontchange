@@ -6,7 +6,7 @@
 static NSString *const FCErrorDomain = @"FontChange";
 
 NSString *FCStatePath(void) {
-    return jbroot(@"/var/mobile/Library/Preferences/com.moxuan1121.fontchange.restore-pending.plist");
+    return jbroot(@"/var/mobile/Library/Preferences/com.moxuan.fontchange.restore-pending.plist");
 }
 
 static NSError *FCError(NSInteger code, NSString *message) {

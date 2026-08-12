@@ -15,7 +15,7 @@ static NSString *const FCReportPath = @"/var/mobile/Documents/fontchange_last_re
 
 static NSString *systemFontMarkerPath(void) {
     return [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/Preferences/com.moxuan1121.fontchange.system-fonts")];
+        jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.system-fonts")];
 }
 
 static void setSystemFontMarker(BOOL original) {
@@ -232,7 +232,7 @@ static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
 static int preparePreview(NSString *kind, NSString *zipPath, NSString *destination) {
     NSString *temporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [temporary stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"com.moxuan1121.fontchange-preview-%@", NSUUID.UUID.UUIDString]];
+        [NSString stringWithFormat:@"com.moxuan.fontchange-preview-%@", NSUUID.UUID.UUIDString]];
     NSString *failure = nil;
     NSError *directoryError = nil;
     if (![NSFileManager.defaultManager createDirectoryAtPath:work
@@ -483,7 +483,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     BOOL sfuiOnly = [primaryZip isEqualToString:@"-"];
     NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"com.moxuan1121.fontchange-%@", NSUUID.UUID.UUIDString]];
+        [NSString stringWithFormat:@"com.moxuan.fontchange-%@", NSUUID.UUID.UUIDString]];
     NSString *primaryExtract = [work stringByAppendingPathComponent:@"primary"];
     NSString *optionalExtract = [work stringByAppendingPathComponent:@"optional"];
 
@@ -501,7 +501,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *saveNote = @"";
     NSString *mountScheme = nil;
     NSString *mountSaveMarker = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/Preferences/com.moxuan1121.fontchange.mount-s.done")];
+        jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.mount-s.done")];
     NSError *directoryError = nil;
     if (!sfuiOnly) {
         if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
