@@ -601,10 +601,6 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     }
     if (sfuiOnly && !target && bindfsTarget) target = bindfsTarget;
     if (sfuiOnly && !target && mntTarget) target = mntTarget;
-    if (sfuiOnly && !target) {
-        failure = @"单独替换 SFUISoft 时未找到现有 bindfs 或 mnt 字体目录；为避免还原其他字体，已停止且未执行 --copy。";
-        goto fail;
-    }
     if (!target) {
         // Unknown environments get one conservative mnt attempt first. Some
         // Dopamine variants expose jbctl mounting even when no preference
@@ -683,7 +679,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     // The mnt snapshot was already rebuilt from the original system fonts
     // before the custom files were copied. Remounting again here would create
     // another pristine snapshot and silently discard the just-applied fonts.
-    if (sfuiOnly && [target containsString:@"/bindfs/"]) {
+    if (sfuiOnly && [target containsString:@"/bindfs/"] && !usesBindfs) {
         mountScheme = @"bindfs（复用现有目录，未执行 --copy 或 -s）";
     } else if ([target containsString:@"/bindfs/"]) {
         if (mountSaveDone) mountScheme = @"bindfs（已执行 --copy，-s 已登记）";

@@ -257,8 +257,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     selectionCard.spacing = 4;
     selectionCard.backgroundColor = UIColor.clearColor;
     selectionCard.layer.cornerRadius = 22;
-    selectionCard.layer.masksToBounds = YES;
-    selectionCard.layoutMargins = UIEdgeInsetsMake(2, 0, 2, 0);
+    selectionCard.layer.masksToBounds = NO;
+    selectionCard.layoutMargins = UIEdgeInsetsMake(2, 3, 2, 3);
     selectionCard.layoutMarginsRelativeArrangement = YES;
 
     self.statusLabel = [self label:@"准备就绪 · 请选择字体方案" size:13 color:UIColor.secondaryLabelColor];
@@ -464,8 +464,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             self.mountMode = mode;
             if ([mode isEqualToString:@"mnt"]) {
                 self.mountLabel.text = @"● mnt";
-                self.mountLabel.textColor = UIColor.systemOrangeColor;
-                self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
+                self.mountLabel.textColor = UIColor.systemGreenColor;
+                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
             } else if ([mode isEqualToString:@"bindfs"]) {
                 self.mountLabel.text = @"● bindfs";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
