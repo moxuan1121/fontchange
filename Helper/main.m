@@ -320,8 +320,11 @@ static int restoreSystemFonts(void) {
         if (status != 0) return status;
 
         NSError *removeError = nil;
-        [NSFileManager.defaultManager removeItemAtPath:@"/mnt/System/Library/Fonts" error:&removeError];
-        if ([NSFileManager.defaultManager fileExistsAtPath:@"/mnt/System/Library/Fonts"]) return 81;
+        // validFontsTarget returns the real RootHide snapshot path below
+        // .jbroot-*/mnt. Removing the literal /mnt path leaves GenericMount's
+        // snapshot untouched and simply remounts the old customized fonts.
+        [NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError];
+        if ([NSFileManager.defaultManager fileExistsAtPath:mntTarget]) return 81;
 
         status = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
         if (status != 0) return status;
