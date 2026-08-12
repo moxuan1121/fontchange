@@ -327,12 +327,14 @@ static int restoreSystemFonts(void) {
         if ([NSFileManager.defaultManager fileExistsAtPath:mntTarget]) return 81;
 
         status = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-        if (status != 0) return status;
         for (NSUInteger attempt = 0; attempt < 30; attempt++) {
+            // Some GenericMount/jbctl builds return a non-zero command status
+            // even though the kernel mount has completed. The mounted snapshot
+            // is the authoritative success condition.
             if (validFontsTarget(@"/mnt/System/Library/Fonts")) return 0;
             usleep(300000);
         }
-        return 82;
+        return status != 0 ? status : 82;
     }
 
     if (bindfsTarget) {
