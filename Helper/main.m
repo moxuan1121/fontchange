@@ -290,7 +290,7 @@ static NSString *ensureSelfContainedFonts(NSString **failure) {
         NSError *removeError = nil;
         [NSFileManager.defaultManager removeItemAtPath:mirror error:&removeError];
         NSError *createError = nil;
-        if (![NSFileManager.defaultManager createDirectoryAtPath:mirror
+        if (![NSFileManager.defaultManager createDirectoryAtPath:mirror.stringByDeletingLastPathComponent
                                      withIntermediateDirectories:YES
                                                       attributes:nil
                                                            error:&createError]) {
@@ -298,14 +298,17 @@ static NSString *ensureSelfContainedFonts(NSString **failure) {
                 createError.localizedDescription ?: @"未知错误"];
             return nil;
         }
-        NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
-        int copyStatus = runToolCapturingOutput(cp,
-            @[@"-Rp", @"/System/Library/Fonts/.", mirror], &details);
-        if (copyStatus != 0 || !validFontsTarget(@"/var/lib/fontchange-selfcontained/System/Library/Fonts")) {
-            [NSFileManager.defaultManager removeItemAtPath:mirror error:nil];
+        NSError *copyError = nil;
+        BOOL copied = [NSFileManager.defaultManager copyItemAtPath:@"/System/Library/Fonts"
+                                                             toPath:mirror
+                                                              error:&copyError];
+        NSString *validated = validFontsTarget(@"/var/lib/fontchange-selfcontained/System/Library/Fonts");
+        if (!copied || !validated) {
+            NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:mirror error:nil];
             if (failure) *failure = [NSString stringWithFormat:
-                @"创建原生字体快照失败（%d）：%@", copyStatus,
-                details.length ? details : @"复制后目录校验失败"];
+                @"创建原生字体快照失败：%@；镜像一级内容：%@",
+                copyError.localizedDescription ?: @"复制完成但目录校验失败",
+                entries.count ? [entries componentsJoinedByString:@", "] : @"（空）"];
             return nil;
         }
     }
