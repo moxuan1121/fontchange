@@ -143,7 +143,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
     CGFloat width = CGRectGetWidth(rect);
-    UIColor *ink = [UIColor colorWithWhite:0.10 alpha:1.0];
+    UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
+    UIColor *detailInk = [UIColor.secondaryLabelColor resolvedColorWithTraitCollection:self.traitCollection];
     CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 13.0, NULL);
     CTFontRef headline = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 34.0, NULL, NULL)
                                       : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 34.0, NULL);
@@ -154,10 +155,10 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     if (_previewFont) {
         FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61, width - 40, 18);
         FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
-                          [UIColor colorWithWhite:0.18 alpha:0.72], 20, 29, width - 40, 12);
+                          detailInk, 20, 29, width - 40, 12);
         if (_displayName.length) {
             FCDrawPreviewName(context, _displayName, nameFont,
-                              [UIColor colorWithWhite:0.16 alpha:0.72], width - 20, 9, width * 0.72);
+                              detailInk, width - 20, 9, width * 0.72);
         }
     } else {
         FCDrawPreviewLine(context, @"导入字体后，在这里实时预览。", headline, ink, 20, 55, width - 40, 18);
@@ -197,7 +198,11 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"";
-    self.view.backgroundColor = [UIColor colorWithRed:0.976 green:0.969 blue:0.949 alpha:1.0];
+    self.view.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:0.055 green:0.053 blue:0.047 alpha:1.0]
+            : [UIColor colorWithRed:0.976 green:0.969 blue:0.949 alpha:1.0];
+    }];
 
     UILabel *titleLabel = [self label:@"FontChange" size:36 color:UIColor.labelColor];
     titleLabel.font = [UIFont systemFontOfSize:36 weight:UIFontWeightHeavy];
@@ -214,7 +219,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     header.distribution = UIStackViewDistributionEqualSpacing;
 
     self.mountLabel = [self label:@"● 正在检测挂载模式…" size:12 color:UIColor.secondaryLabelColor];
-    self.mountLabel.backgroundColor = [UIColor colorWithRed:0.96 green:0.91 blue:0.82 alpha:1.0];
+    self.mountLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     self.mountLabel.layer.cornerRadius = 14;
     self.mountLabel.layer.masksToBounds = YES;
     [self.mountLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
@@ -231,7 +236,11 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     self.optionalLabel = [self label:@"跟随全局字体包 · 自动读取 SFUISoft.ttc" size:12 color:UIColor.secondaryLabelColor];
     self.optionalLabel.textAlignment = NSTextAlignmentLeft;
     self.previewView = [[FCFontPreviewView alloc] init];
-    self.previewView.backgroundColor = [UIColor colorWithRed:1.0 green:0.78 blue:0.66 alpha:1.0];
+    self.previewView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:0.30 green:0.16 blue:0.11 alpha:1.0]
+            : [UIColor colorWithRed:1.0 green:0.78 blue:0.66 alpha:1.0];
+    }];
     self.previewView.layer.cornerRadius = 30;
     self.previewView.layer.masksToBounds = YES;
     self.previewView.layer.borderWidth = 0;
@@ -245,7 +254,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     ]];
     selectionCard.axis = UILayoutConstraintAxisVertical;
     selectionCard.spacing = 2;
-    selectionCard.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.82];
+    selectionCard.backgroundColor = UIColor.secondarySystemBackgroundColor;
     selectionCard.layer.cornerRadius = 22;
     selectionCard.layer.masksToBounds = YES;
     selectionCard.layoutMargins = UIEdgeInsetsMake(6, 14, 6, 14);
@@ -267,7 +276,9 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [bottomSpacer setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisVertical];
 
     self.runButton = [self button:@"检查并开始执行" action:@selector(confirmRun)];
-    self.runButton.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
+    self.runButton.backgroundColor = UIColor.labelColor;
+    [self.runButton setTitleColor:UIColor.systemBackgroundColor forState:UIControlStateNormal];
+    self.runButton.tintColor = UIColor.systemBackgroundColor;
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         header, self.mountLabel, self.previewView, sectionLabel, selectionCard, self.clearButton,
@@ -315,6 +326,16 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     [self cleanupOldImports];
     [self updateClearButtonState];
     [self detectMountMode];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            self.statusLabel.layer.borderColor = UIColor.separatorColor.CGColor;
+            [self.previewView setNeedsDisplay];
+        }
+    }
 }
 
 - (UILabel *)label:(NSString *)text size:(CGFloat)size color:(UIColor *)color {
