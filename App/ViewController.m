@@ -307,7 +307,6 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [selectionButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
         selectionButton.tintColor = UIColor.systemOrangeColor;
         selectionButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-        selectionButton.contentEdgeInsets = UIEdgeInsetsMake(0, 8, 0, 8);
         selectionButton.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
         selectionButton.layer.borderWidth = 0;
         selectionButton.layer.shadowOpacity = 0;
