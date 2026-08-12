@@ -130,6 +130,8 @@ extern char **environ;
 
 @implementation ViewController
 
+static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed";
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"";
@@ -290,9 +292,35 @@ extern char **environ;
             } else {
                 self.mountLabel.text = @"当前挂载模式：未识别（执行时将再次检测）";
                 self.mountLabel.textColor = UIColor.secondaryLabelColor;
+                [self presentMissingMountWarningIfNeeded];
             }
         });
     });
+}
+
+- (void)presentMissingMountWarningIfNeeded {
+    if ([NSUserDefaults.standardUserDefaults boolForKey:FCMountWarningSuppressedKey]) return;
+    if (self.presentedViewController) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+            dispatch_get_main_queue(), ^{
+                if (!self.presentedViewController) [self presentMissingMountWarningIfNeeded];
+            });
+        return;
+    }
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"未检测到字体挂载环境"
+                         message:@"当前未检测到 mnt 或 bindfs 字体目录。请使用真皮版多巴胺提供的 mnt 挂载功能，或安装并配置 mount_bindfs 后再进行字体更换。"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"不再提示"
+                                            style:UIAlertActionStyleDefault
+                                          handler:^(__unused UIAlertAction *action) {
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:FCMountWarningSuppressedKey];
+        [NSUserDefaults.standardUserDefaults synchronize];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"关闭"
+                                            style:UIAlertActionStyleCancel
+                                          handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)handleExternalURL:(NSURL *)url {
