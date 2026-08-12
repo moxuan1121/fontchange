@@ -201,6 +201,8 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     titleLabel.font = [UIFont systemFontOfSize:36 weight:UIFontWeightHeavy];
     titleLabel.textAlignment = NSTextAlignmentLeft;
     self.mountLabel = [self label:@"当前挂载模式：正在检测…" size:13 color:UIColor.secondaryLabelColor];
+    [self.mountLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
+    [self.mountLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
     UILabel *sectionLabel = [self label:@"选择字体方案" size:23 color:UIColor.labelColor];
     sectionLabel.font = [UIFont systemFontOfSize:23 weight:UIFontWeightBold];
     sectionLabel.textAlignment = NSTextAlignmentLeft;
@@ -253,7 +255,7 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
         [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],
         [stack.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-14],
-        [self.mountLabel.heightAnchor constraintGreaterThanOrEqualToConstant:32],
+        [self.mountLabel.heightAnchor constraintEqualToConstant:32],
         [primaryButton.heightAnchor constraintEqualToConstant:54],
         [optionalButton.heightAnchor constraintEqualToConstant:54],
         [self.previewView.heightAnchor constraintEqualToConstant:132],
