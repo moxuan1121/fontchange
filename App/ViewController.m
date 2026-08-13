@@ -269,7 +269,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         CFIndex bestCoverage = -1;
         for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
-            CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 39.0, NULL);
+            CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 56.0, NULL);
             if (!candidate) continue;
             memset(glyphs, 0, sizeof(glyphs));
             CTFontGetGlyphsForCharacters(candidate, characters, glyphs, length);
@@ -301,8 +301,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
-    CTFontRef font = _sampleFont ? CTFontCreateCopyWithAttributes(_sampleFont, 39.0, NULL, NULL)
-                                 : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 39.0, NULL);
+    CTFontRef font = _sampleFont ? CTFontCreateCopyWithAttributes(_sampleFont, 56.0, NULL, NULL)
+                                 : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 56.0, NULL);
     NSDictionary *attributes = @{
         (__bridge id)kCTFontAttributeName: (__bridge id)font,
         (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
@@ -311,7 +311,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
     CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
     if (width > CGRectGetWidth(rect)) {
-        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, 31.0, NULL, NULL);
+        CGFloat fittedSize = MAX(38.0, CTFontGetSize(font) * CGRectGetWidth(rect) / MAX(1.0, width));
+        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, fittedSize, NULL, NULL);
         CFRelease(font);
         font = fitted;
         CFRelease(line);
