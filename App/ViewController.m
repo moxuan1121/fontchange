@@ -15,6 +15,7 @@ extern char **environ;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setDisplayName:(NSString *)name;
 - (void)setLockScreenPreview:(BOOL)lockScreenPreview;
+- (void)setShowsSwitchHint:(BOOL)showsSwitchHint;
 - (void)clearFont;
 @end
 
@@ -22,6 +23,7 @@ extern char **environ;
     CTFontRef _previewFont;
     NSString *_displayName;
     BOOL _lockScreenPreview;
+    BOOL _showsSwitchHint;
 }
 
 - (void)dealloc {
@@ -87,6 +89,12 @@ extern char **environ;
 - (void)setLockScreenPreview:(BOOL)lockScreenPreview {
     if (_lockScreenPreview == lockScreenPreview) return;
     _lockScreenPreview = lockScreenPreview;
+    [self setNeedsDisplay];
+}
+
+- (void)setShowsSwitchHint:(BOOL)showsSwitchHint {
+    if (_showsSwitchHint == showsSwitchHint) return;
+    _showsSwitchHint = showsSwitchHint;
     [self setNeedsDisplay];
 }
 
@@ -194,8 +202,14 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0 * scale, NULL, NULL)
                                     : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0 * scale, NULL);
     CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0 * scale, NULL);
-    FCDrawPreviewLine(context, _lockScreenPreview ? @"锁屏时钟自定义" : @"实时预览",
+    CTFontRef hintFont = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 8.5 * scale, NULL);
+    FCDrawPreviewLine(context, _lockScreenPreview ? @"自定义锁屏时钟" : @"实时预览",
                       badge, ink, 23, 102 * scale, width - 46, 10 * scale);
+    if (_showsSwitchHint) {
+        NSString *hint = _lockScreenPreview ? @"点击查看全局字体" : @"点击查看自定义锁屏时钟";
+        FCDrawPreviewName(context, hint, hintFont, detailInk,
+                          width - 23, 102 * scale, width * 0.58);
+    }
     if (_previewFont) {
         if (_lockScreenPreview) {
             FCDrawCenteredPreviewLine(context, @"0123456789", headline, ink, width * 0.5,
@@ -216,6 +230,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     CFRelease(headline);
     CFRelease(detail);
     CFRelease(nameFont);
+    CFRelease(hintFont);
     CGContextRestoreGState(context);
 }
 
@@ -503,6 +518,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 - (NSString *)formattedLogText;
 - (NSString *)previewCacheMetadataPath;
 - (void)savePreviewCacheMetadata;
+- (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated;
 @end
 
 @implementation ViewController
@@ -938,6 +954,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     self.optionalPath = scheme[@"optionalPath"];
     self.primaryDisplayName = scheme[@"primaryDisplayName"];
     self.optionalDisplayName = scheme[@"optionalDisplayName"];
+    [self.previewView setShowsSwitchHint:(self.primaryPath.length && self.optionalPath.length)];
     // A newly selected scheme always opens on the global preview. The user can
     // tap the large preview card to switch to the lock-screen preview.
     self.selectedPreviewSlot = self.primaryPath.length ? 1 : (self.optionalPath.length ? 2 : 0);
@@ -958,8 +975,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     }
     BOOL hasGlobal = self.primaryPath.length > 0;
     BOOL hasLock = self.optionalPath.length > 0;
-    NSString *mode = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏"
-        : (hasGlobal ? @"全局字体" : @"仅锁屏字体");
+    NSString *mode = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏时钟"
+        : (hasGlobal ? @"全局字体" : @"自定义锁屏时钟");
     [self.selectedSummaryButton setTitle:[NSString stringWithFormat:@"已选择：%@ · %@",
         scheme[@"name"] ?: @"字体方案", mode] forState:UIControlStateNormal];
     self.selectedSummaryButton.enabled = YES;
@@ -1063,8 +1080,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         BOOL hasGlobal = [scheme[@"primaryPath"] length] > 0;
         BOOL hasLock = [scheme[@"optionalPath"] length] > 0;
         BOOL selected = [scheme[@"id"] isEqualToString:self.selectedSchemeID];
-        card.detailLabel.text = hasGlobal && hasLock ? @"全局字体 + 锁屏时钟自定义"
-            : (hasGlobal ? @"全局字体" : @"锁屏时钟自定义");
+        card.detailLabel.text = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏时钟"
+            : (hasGlobal ? @"全局字体" : @"自定义锁屏时钟");
         card.tag = (NSInteger)index;
         card.deleteButton.tag = (NSInteger)index;
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
@@ -1076,7 +1093,15 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     }];
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.view layoutIfNeeded];
-        [self updateSchemePageControl];
+        NSInteger selectedIndex = NSNotFound;
+        for (NSInteger index = 0; index < (NSInteger)self.fontSchemes.count; index++) {
+            if ([self.fontSchemes[(NSUInteger)index][@"id"] isEqualToString:self.selectedSchemeID]) {
+                selectedIndex = index;
+                break;
+            }
+        }
+        if (selectedIndex != NSNotFound) [self scrollToSchemeIndex:selectedIndex animated:NO];
+        else [self updateSchemePageControl];
     });
 }
 
@@ -1091,8 +1116,21 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         BOOL selected = [schemeCard.schemeID isEqualToString:self.selectedSchemeID];
         [schemeCard setSelectedAppearance:selected];
     }
+    [self scrollToSchemeIndex:card.schemeIndex animated:YES];
     self.statusLabel.text = [NSString stringWithFormat:@"已切换到“%@”；可直接预览或执行。",
         [self selectedScheme][@"name"] ?: @"字体方案"];
+}
+
+- (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated {
+    NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
+    CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
+    if (index < 0 || index >= (NSInteger)cards.count || width <= 1.0) return;
+    UIView *card = cards[(NSUInteger)index];
+    CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
+    CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
+    CGFloat target = MAX(0, MIN(maxOffset, center.x - width * 0.5));
+    self.schemePageControl.currentPage = index;
+    [self.schemeScrollView setContentOffset:CGPointMake(target, 0) animated:animated];
 }
 
 - (void)updateSchemePageControl {
@@ -1103,13 +1141,15 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         self.schemePageControl.currentPage = 0;
         return;
     }
-    CGFloat visibleCenter = self.schemeScrollView.contentOffset.x + width * 0.5;
+    CGFloat currentOffset = self.schemeScrollView.contentOffset.x;
+    CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
     NSInteger nearest = 0;
     CGFloat nearestDistance = CGFLOAT_MAX;
     for (NSInteger index = 0; index < (NSInteger)cards.count; index++) {
         UIView *card = cards[index];
         CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
-        CGFloat distance = fabs(center.x - visibleCenter);
+        CGFloat pageOffset = MAX(0, MIN(maxOffset, center.x - width * 0.5));
+        CGFloat distance = fabs(pageOffset - currentOffset);
         if (distance < nearestDistance) {
             nearestDistance = distance;
             nearest = index;
@@ -1123,15 +1163,9 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 }
 
 - (void)schemePageChanged:(UIPageControl *)sender {
-    NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
-    CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
-    if (cards.count == 0 || width <= 1.0) return;
-    NSInteger index = MAX(0, MIN(sender.currentPage, (NSInteger)cards.count - 1));
-    UIView *card = cards[index];
-    CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
-    CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
-    CGFloat target = MAX(0, MIN(maxOffset, center.x - width * 0.5));
-    [self.schemeScrollView setContentOffset:CGPointMake(target, 0) animated:YES];
+    NSInteger lastIndex = (NSInteger)self.schemeStackView.arrangedSubviews.count - 1;
+    if (lastIndex < 0) return;
+    [self scrollToSchemeIndex:MAX(0, MIN(sender.currentPage, lastIndex)) animated:YES];
 }
 
 - (void)appendLogEntry:(NSString *)text {
