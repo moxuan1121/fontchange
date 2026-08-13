@@ -1,6 +1,6 @@
 Package: com.moxuan.fontchange
 Name: Font Package Installer
-Version: 2.1.0-selfmount-test2
+Version: 2.1.0-selfmount-test3
 Architecture: iphoneos-arm64e
 Description: Imports ZIP/TTC fonts through FontChange's RootHide-native bindfs mount, refreshes language caches, and reboots userspace.
 Maintainer: moxuan1121

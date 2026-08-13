@@ -180,6 +180,36 @@ static NSString *matchForCurrentIOS(NSArray<NSString *> *paths) {
     return versionMatches.count == 1 ? versionMatches.firstObject : nil;
 }
 
+static NSString *matchForNativeRelativePath(NSArray<NSString *> *paths, NSString *extracted,
+                                             NSString *nativeRelativePath) {
+    if (nativeRelativePath.length == 0) return nil;
+
+    NSString *normalizedTarget = [[nativeRelativePath stringByReplacingOccurrencesOfString:@"\\" withString:@"/"]
+        lowercaseString];
+    NSString *targetSuffix = [@"/" stringByAppendingString:normalizedTarget];
+    NSMutableArray<NSString *> *pathMatches = [NSMutableArray array];
+
+    for (NSString *absolute in paths) {
+        NSString *relative = absolute;
+        if ([absolute hasPrefix:extracted]) {
+            relative = [absolute substringFromIndex:extracted.length];
+        }
+        NSString *normalizedRelative = [[relative stringByReplacingOccurrencesOfString:@"\\" withString:@"/"]
+            lowercaseString];
+        while ([normalizedRelative hasPrefix:@"/"]) {
+            normalizedRelative = [normalizedRelative substringFromIndex:1];
+        }
+        if ([normalizedRelative isEqualToString:normalizedTarget] ||
+            [normalizedRelative hasSuffix:targetSuffix]) {
+            [pathMatches addObject:absolute];
+        }
+    }
+
+    if (pathMatches.count == 1) return pathMatches.firstObject;
+    if (pathMatches.count > 1) return matchForCurrentIOS(pathMatches);
+    return nil;
+}
+
 static NSDictionary<NSString *, NSString *> *nativeFontIndex(NSString **failure) {
     NSString *indexPath = nativeFontIndexPath();
     NSString *currentVersion = NSProcessInfo.processInfo.operatingSystemVersionString;
@@ -288,6 +318,18 @@ static NSDictionary<NSString *, NSString *> *primarySourcesForIndex(
             selected[key] = paths.firstObject;
             continue;
         }
+
+        // The native index records the exact destination layout. Prefer a
+        // source whose trailing path mirrors that layout (for example,
+        // CoreUI/SFUI.ttf) before falling back to an iOS-version-only match.
+        // This prevents a same-name file elsewhere in the archive from
+        // incorrectly making the valid CoreUI candidate ambiguous.
+        NSString *relativePathMatch = matchForNativeRelativePath(paths, extracted, index[key]);
+        if (relativePathMatch) {
+            selected[key] = relativePathMatch;
+            continue;
+        }
+
         NSString *versionMatch = matchForCurrentIOS(paths);
         if (versionMatch) selected[key] = versionMatch;
         // Multiple same-name candidates without one unambiguous current-iOS
