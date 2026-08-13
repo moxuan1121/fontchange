@@ -196,7 +196,6 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 
 @implementation ViewController
 
-static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed";
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -460,106 +459,24 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)detectMountMode {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
-        NSString *mode = status == 14 ? @"fontchange" : (status == 10 ? @"mnt" : (status == 11 ? @"bindfs" :
-            (status == 13 ? @"mnt-unmounted" : @"unknown")));
+        NSString *mode = status == 14 ? @"fontchange" : (status == 15 ? @"repair-needed" : @"uninitialized");
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mountMode = mode;
             if ([mode isEqualToString:@"fontchange"]) {
-                self.mountLabel.text = @"● FontChange 内置挂载";
+                self.mountLabel.text = @"● 自带挂载 · 已启用";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
                 self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
-            } else if ([mode isEqualToString:@"mnt"]) {
-                self.mountLabel.text = @"● mnt";
-                self.mountLabel.textColor = UIColor.systemGreenColor;
-                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
-            } else if ([mode isEqualToString:@"bindfs"]) {
-                self.mountLabel.text = @"● bindfs";
-                self.mountLabel.textColor = UIColor.systemGreenColor;
-                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
-            } else if ([mode isEqualToString:@"mnt-unmounted"]) {
-                self.mountLabel.text = @"● 待迁移 · 执行时启用内置挂载";
+            } else if ([mode isEqualToString:@"repair-needed"]) {
+                self.mountLabel.text = @"● 自带挂载 · 等待守护恢复";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
                 self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
             } else {
-                self.mountLabel.text = @"● 待初始化 · 首次执行自动创建";
+                self.mountLabel.text = @"● 自带挂载 · 首次执行自动创建";
                 self.mountLabel.textColor = UIColor.systemBlueColor;
                 self.mountLabel.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.10];
             }
             self.mountLabel.layer.cornerRadius = 12;
             self.mountLabel.layer.masksToBounds = YES;
-        });
-    });
-}
-
-- (void)presentMissingMountWarningIfNeeded {
-    if ([NSUserDefaults.standardUserDefaults boolForKey:FCMountWarningSuppressedKey]) return;
-    if (self.presentedViewController) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-            dispatch_get_main_queue(), ^{
-                if (!self.presentedViewController) [self presentMissingMountWarningIfNeeded];
-            });
-        return;
-    }
-    BOOL canCreateMnt = [self.mountMode isEqualToString:@"mnt-unmounted"];
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:(canCreateMnt ? @"检测到 mnt 挂载环境" : @"未检测到字体挂载环境")
-                         message:(canCreateMnt
-                            ? @"真皮版多巴胺的 Fonts 挂载尚未创建，可由本 App 自动创建原生 mnt 字体副本并登记下次越狱自动挂载。"
-                            : @"当前未检测到 mnt 或 bindfs 字体目录。官方 Dopamine 用户可前往 Sileo 安装 mount_bindfs (Dopamine)。\n\n软件源：https://invalidunit.github.io/repo/")
-                  preferredStyle:UIAlertControllerStyleAlert];
-    if (canCreateMnt) {
-        [alert addAction:[UIAlertAction actionWithTitle:@"自动创建 mnt 字体挂载"
-                                                style:UIAlertActionStyleDefault
-                                              handler:^(__unused UIAlertAction *action) {
-            [self createMntFontsMount];
-        }]];
-    } else {
-        [alert addAction:[UIAlertAction actionWithTitle:@"前往 Sileo 安装"
-                                                style:UIAlertActionStyleDefault
-                                              handler:^(__unused UIAlertAction *action) {
-            NSURL *url = [NSURL URLWithString:@"sileo://package/com.nan.bindfs"];
-            [UIApplication.sharedApplication openURL:url options:@{} completionHandler:^(BOOL success) {
-                if (success) return;
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    UIAlertController *failureAlert = [UIAlertController
-                        alertControllerWithTitle:@"无法打开 Sileo"
-                                         message:@"请先在 Sileo 添加软件源 https://invalidunit.github.io/repo/，然后搜索并安装 mount_bindfs (Dopamine)。"
-                                  preferredStyle:UIAlertControllerStyleAlert];
-                    [failureAlert addAction:[UIAlertAction actionWithTitle:@"确定"
-                                                                    style:UIAlertActionStyleCancel
-                                                                  handler:nil]];
-                    [self presentViewController:failureAlert animated:YES completion:nil];
-                });
-            }];
-        }]];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:@"不再提示"
-                                            style:UIAlertActionStyleDefault
-                                          handler:^(__unused UIAlertAction *action) {
-        [NSUserDefaults.standardUserDefaults setBool:YES forKey:FCMountWarningSuppressedKey];
-        [NSUserDefaults.standardUserDefaults synchronize];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"关闭"
-                                            style:UIAlertActionStyleCancel
-                                          handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)createMntFontsMount {
-    self.mountLabel.text = @"当前挂载模式：正在创建 mnt 字体挂载…";
-    self.statusLabel.text = @"正在复制原生字体并创建 mnt 挂载，请稍候…";
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        int status = [self runHelperArguments:@[@"--create-mnt-fonts"] wait:YES];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (status == 0) {
-                self.statusLabel.text = @"mnt 字体挂载创建完成，已登记下次越狱自动挂载。";
-                [self detectMountMode];
-            } else {
-                self.mountMode = @"mnt-unmounted";
-                self.mountLabel.text = @"当前挂载模式：mnt（Fonts 创建失败）";
-                self.mountLabel.textColor = UIColor.systemRedColor;
-                self.statusLabel.text = [NSString stringWithFormat:@"自动创建 mnt 字体挂载失败（%d）。", status];
-            }
         });
     });
 }
@@ -800,22 +717,11 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             self.optionalLabel.text = @"跟随全局字体包 · 自动读取 SFUISoft.ttc";
             [self updateClearButtonState];
             self.statusLabel.text = restoringSystemFonts
-                ? @"运行日志\n✓ 系统原生字体已恢复\n• 等待确认刷新语言缓存"
+                ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存"
                 : sfuiOnly
-                ? @"运行日志\n✓ SFUISoft 替换完成\n• 等待确认刷新语言缓存"
-                : @"运行日志\n✓ 全局字体覆盖完成\n• 等待确认刷新语言缓存";
-
-            UIAlertController *refreshAlert = [UIAlertController
-                alertControllerWithTitle:@"字体替换已完成"
-                                 message:@"即将刷新系统字体缓存。继续后设备会进入锁屏并自动重启用户空间，请勿解锁或操作设备，等待流程自行完成。"
-                          preferredStyle:UIAlertControllerStyleAlert];
-            __weak typeof(self) weakSelf = self;
-            [refreshAlert addAction:[UIAlertAction actionWithTitle:@"继续刷新"
-                                                            style:UIAlertActionStyleDefault
-                                                          handler:^(__unused UIAlertAction *action) {
-                [weakSelf continueLanguageRefreshWithLanguage:language originalLanguages:originalLanguages];
-            }]];
-            [self presentViewController:refreshAlert animated:YES completion:nil];
+                ? @"运行日志\n✓ SFUISoft 替换完成\n• 正在刷新语言缓存"
+                : @"运行日志\n✓ 全局字体覆盖完成\n• 正在刷新语言缓存";
+            [self continueLanguageRefreshWithLanguage:language originalLanguages:originalLanguages];
         });
     });
 }

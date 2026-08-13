@@ -424,50 +424,21 @@ static BOOL copyFile(NSString *source, NSString *destination, NSString **failure
     return status == 0;
 }
 
-static BOOL hasZqbbFontMountPreference(void) {
-    NSString *genericMountPath = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/com.moxuan1121.genericmount.plist")];
-    NSDictionary *genericMountConfig = [NSDictionary dictionaryWithContentsOfFile:genericMountPath];
-    NSArray *genericMountPaths = [genericMountConfig[@"path"] isKindOfClass:NSArray.class]
-        ? genericMountConfig[@"path"] : nil;
-    if ([genericMountPaths containsObject:@"/System/Library/Fonts"]) return YES;
-
-    NSString *rootHidePath = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
-    NSDictionary *rootHideConfig = [NSDictionary dictionaryWithContentsOfFile:rootHidePath];
-    NSArray *rootHidePaths = [rootHideConfig[@"path"] isKindOfClass:NSArray.class] ? rootHideConfig[@"path"] : nil;
-    if ([rootHidePaths containsObject:@"/System/Library/Fonts"]) return YES;
-
-    NSDictionary *rootlessConfig = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/newFakePath.plist"];
-    NSArray *rootlessPaths = [rootlessConfig[@"path"] isKindOfClass:NSArray.class] ? rootlessConfig[@"path"] : nil;
-    return [rootlessPaths containsObject:@"/System/Library/Fonts"];
-}
-
-static BOOL hasGenericMountFontPreference(void) {
-    NSString *configPath = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/com.moxuan1121.genericmount.plist")];
-    NSDictionary *config = [NSDictionary dictionaryWithContentsOfFile:configPath];
-    NSArray *paths = [config[@"path"] isKindOfClass:NSArray.class] ? config[@"path"] : nil;
-    return [paths containsObject:@"/System/Library/Fonts"];
-}
-
-static BOOL hasZqbbMountEnvironment(void) {
-    NSString *genericMountConfig = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/com.moxuan1121.genericmount.plist")];
-    NSString *mountConfig = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
-    NSString *systemInjectConfig = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/cn.zqbb.inject.system.plist")];
-    return [NSFileManager.defaultManager fileExistsAtPath:genericMountConfig] ||
-        [NSFileManager.defaultManager fileExistsAtPath:mountConfig] ||
-        [NSFileManager.defaultManager fileExistsAtPath:systemInjectConfig];
-}
-
 static int restoreSystemFonts(void) {
     NSString *resultPath = @"/var/mobile/Documents/fontchange_last_result.txt";
     [NSFileManager.defaultManager removeItemAtPath:resultPath error:nil];
     NSString *ownedMountTool = fontChangeMountTool();
-    if ([NSFileManager.defaultManager isExecutableFileAtPath:ownedMountTool] && fontChangeMountWasPrepared()) {
+    if (![NSFileManager.defaultManager isExecutableFileAtPath:ownedMountTool]) {
+        [@"恢复失败：FontChange 内置挂载组件不存在，请重新安装完整软件包。"
+            writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return 83;
+    }
+    if (!fontChangeMountWasPrepared()) {
+        [@"当前尚未创建原生字体镜像，无需执行恢复。"
+            writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return 85;
+    }
+    {
         int ownedStatus = runTool(ownedMountTool, @[@"reset"]);
         if (ownedStatus == 0 && fontChangeFontsTarget()) {
             setSystemFontMarker(YES);
@@ -479,148 +450,19 @@ static int restoreSystemFonts(void) {
         [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         return ownedStatus != 0 ? ownedStatus : 86;
     }
-    NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-    NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    BOOL prefersMnt = hasZqbbFontMountPreference();
-
-    if ((prefersMnt && mntTarget) || (mntTarget && !bindfsTarget)) {
-        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-        BOOL genericMount = hasGenericMountFontPreference();
-        NSArray<NSString *> *unmountArguments = genericMount
-            ? @[@"internal", @"font_unmount"]
-            : @[@"internal", @"unmount", @"/System/Library/Fonts"];
-        NSArray<NSString *> *mountArguments = genericMount
-            ? @[@"internal", @"font_mount"]
-            : @[@"internal", @"mount", @"/System/Library/Fonts"];
-        int status = 0;
-        int genericStatus = 0;
-        int pathStatus = 0;
-        int umountStatus = 0;
-        int rmStatus = 0;
-        NSError *removeError = nil;
-        BOOL removed = NO;
-
-        // GenericMount may finish the forced unmount shortly after jbctl
-        // returns. Retry its dedicated command and only proceed once the real
-        // RootHide snapshot can be removed.
-        for (NSUInteger attempt = 0; attempt < 12; attempt++) {
-            status = runTool(jbctl, unmountArguments);
-            genericStatus = status;
-            // Try both jbctl entry points because older GenericMount builds
-            // may expose only one of them.
-            pathStatus = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
-            NSString *umount = @"/sbin/umount";
-            if (![NSFileManager.defaultManager isExecutableFileAtPath:umount]) {
-                umount = [NSString stringWithUTF8String:jbroot("/sbin/umount")];
-            }
-            umountStatus = [NSFileManager.defaultManager isExecutableFileAtPath:umount]
-                ? runTool(umount, @[@"-f", @"/System/Library/Fonts"]) : 127;
-            usleep(250000);
-            removeError = nil;
-            if ([NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError] ||
-                ![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
-                removed = YES;
-                break;
-            }
-            // RootHide may deny NSFileManager access to another translated
-            // .jbroot path even for this setuid helper. Its platform /bin/rm
-            // is the same mechanism already used by the font copy workflow
-            // and can operate on the resolved snapshot path.
-            NSString *rm = [NSString stringWithUTF8String:jbroot("/bin/rm")];
-            rmStatus = runTool(rm, @[@"-rf", @"--", mntTarget]);
-            if (![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
-                removed = YES;
-                break;
-            }
-        }
-
-        if (!removed) {
-            NSString *message = [NSString stringWithFormat:
-                @"恢复失败：无法删除 GenericMount 字体快照。font_unmount=%d，path_unmount=%d，umount=%d，rm=%d，文件错误=%ld（%@）。",
-                genericStatus, pathStatus, umountStatus, rmStatus, (long)removeError.code,
-                removeError.localizedDescription ?: @"未知错误"];
-            [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return status != 0 ? status : 81;
-        }
-
-        status = runTool(jbctl, mountArguments);
-        for (NSUInteger attempt = 0; attempt < 30; attempt++) {
-            // Some GenericMount/jbctl builds return a non-zero command status
-            // even though the kernel mount has completed. The mounted snapshot
-            // is the authoritative success condition.
-            if (validFontsTarget(@"/mnt/System/Library/Fonts")) {
-                setSystemFontMarker(YES);
-                [@"恢复成功：已删除旧 GenericMount 字体快照，并从 /System/Library/Fonts 重新生成原生字体。"
-                    writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-                return 0;
-            }
-            usleep(300000);
-        }
-        NSString *message = [NSString stringWithFormat:
-            @"恢复失败：GenericMount 未重新生成有效字体目录（命令状态 %d）。", status];
-        [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return status != 0 ? status : 82;
-    }
-
-    if (bindfsTarget) {
-        NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
-        if (![NSFileManager.defaultManager isExecutableFileAtPath:mountBindfs]) return 83;
-        int status = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
-        if (status != 0) return status;
-        if (validFontsTarget(@"/bindfs/System/Library/Fonts")) {
-            setSystemFontMarker(YES);
-            [@"恢复成功：bindfs 已重新复制 /System/Library/Fonts 原生字体。" writeToFile:resultPath
-                atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return 0;
-        }
-        return 84;
-    }
-    return 85;
 }
 
 static int detectMountMode(void) {
     if (fontChangeMountIsActive()) return 14;
-    BOOL prefersMnt = hasZqbbFontMountPreference();
-    NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-    NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    if (prefersMnt && mntTarget) return 10;
-    if (bindfsTarget) return 11;
-    if (mntTarget) return 10;
-    if (hasZqbbMountEnvironment()) return 13;
+    if (fontChangeMountWasPrepared()) {
+        NSString *tool = fontChangeMountTool();
+        if ([NSFileManager.defaultManager isExecutableFileAtPath:tool]) {
+            runTool(tool, @[@"mount-if-enabled"]);
+            if (fontChangeMountIsActive()) return 14;
+        }
+        return 15;
+    }
     return 12;
-}
-
-static int createMntFontsMount(void) {
-    if (!hasZqbbMountEnvironment()) return 20;
-    NSString *configPath = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/RootHide/cn.zqbb.mount.rh.plist")];
-    NSMutableDictionary *config = [NSMutableDictionary dictionaryWithContentsOfFile:configPath];
-    if (!config) config = [NSMutableDictionary dictionary];
-    NSMutableArray *paths = [config[@"path"] isKindOfClass:NSArray.class]
-        ? [config[@"path"] mutableCopy] : [NSMutableArray array];
-    BOOL addedPath = ![paths containsObject:@"/System/Library/Fonts"];
-    if (addedPath) [paths addObject:@"/System/Library/Fonts"];
-    config[@"path"] = paths;
-    NSError *directoryError = nil;
-    [NSFileManager.defaultManager createDirectoryAtPath:configPath.stringByDeletingLastPathComponent
-                            withIntermediateDirectories:YES attributes:nil error:&directoryError];
-    if (directoryError || ![config writeToFile:configPath atomically:YES]) return 21;
-
-    NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-    int mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-    NSString *target = nil;
-    for (NSUInteger attempt = 0; attempt < 20; attempt++) {
-        target = validFontsTarget(@"/mnt/System/Library/Fonts");
-        if (target) break;
-        usleep(300000);
-    }
-    if (mountStatus == 0 && target) return 0;
-    if (addedPath) {
-        [paths removeObject:@"/System/Library/Fonts"];
-        config[@"path"] = paths;
-        [config writeToFile:configPath atomically:YES];
-    }
-    return mountStatus != 0 ? mountStatus : 22;
 }
 
 static int installFonts(NSString *primaryZip, NSString *optionalZip) {
@@ -635,20 +477,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSDictionary<NSString *, NSString *> *fontIndex = nil;
     NSDictionary<NSString *, NSString *> *primarySources = nil;
     NSString *optionalSFUI = nil;
-    NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
     NSString *ownedMountTool = fontChangeMountTool();
     int ownedMountStatus = 0;
     NSString *target = nil;
-    BOOL usesBindfs = NO;
-    BOOL prefersMnt = NO;
-    NSString *mntTarget = nil;
-    NSString *bindfsTarget = nil;
-    int saveStatus = 0;
-    NSString *saveDetails = nil;
-    NSString *saveNote = @"";
-    NSString *mountScheme = nil;
-    NSString *mountSaveMarker = [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.mount-s.done")];
     NSUInteger replacedFileCount = 0;
     NSError *directoryError = nil;
 
@@ -705,7 +536,6 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         goto fail;
     }
     target = fontChangeFontsTarget();
-    mountScheme = @"FontChange 内置挂载";
 
     // Build this once from the original filename layout after migration.
     fontIndex = nativeFontIndex(&failure);
@@ -715,127 +545,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         if (!primarySources) goto fail;
     }
 
-    prefersMnt = hasZqbbFontMountPreference();
-    mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-    bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    if (!target && prefersMnt && mntTarget && !sfuiOnly) {
-        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-        BOOL genericMount = hasGenericMountFontPreference();
-        NSArray<NSString *> *unmountArguments = genericMount
-            ? @[@"internal", @"font_unmount"]
-            : @[@"internal", @"unmount", @"/System/Library/Fonts"];
-        NSArray<NSString *> *mountArguments = genericMount
-            ? @[@"internal", @"font_mount"]
-            : @[@"internal", @"mount", @"/System/Library/Fonts"];
-        int unmountStatus = 0;
-        int rmStatus = 0;
-        NSError *removeError = nil;
-        BOOL removed = NO;
-        for (NSUInteger attempt = 0; attempt < 12; attempt++) {
-            unmountStatus = runTool(jbctl, unmountArguments);
-            usleep(250000);
-            removeError = nil;
-            if ([NSFileManager.defaultManager removeItemAtPath:mntTarget error:&removeError] ||
-                ![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
-                removed = YES;
-                break;
-            }
-            NSString *rm = [NSString stringWithUTF8String:jbroot("/bin/rm")];
-            rmStatus = runTool(rm, @[@"-rf", @"--", mntTarget]);
-            if (![NSFileManager.defaultManager fileExistsAtPath:mntTarget]) {
-                removed = YES;
-                break;
-            }
-        }
-        if (!removed) {
-            failure = [NSString stringWithFormat:
-                @"无法清理现有 mnt 字体快照。卸载=%d，删除=%d，文件错误=%ld（%@）。",
-                unmountStatus, rmStatus, (long)removeError.code,
-                removeError.localizedDescription ?: @"未知错误"];
-            goto fail;
-        }
-        int mountStatus = runTool(jbctl, mountArguments);
-        mntTarget = nil;
-        for (NSUInteger attempt = 0; attempt < 30; attempt++) {
-            mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-            if (mntTarget) break;
-            usleep(300000);
-        }
-        if (!mntTarget) {
-            failure = [NSString stringWithFormat:@"GenericMount 未重新生成有效 mnt 字体副本（命令状态 %d）。", mountStatus];
-            goto fail;
-        }
-        target = mntTarget;
-    } else if (!target && prefersMnt && mntTarget) {
-        target = mntTarget;
-    }
-    if (sfuiOnly && !target && bindfsTarget) target = bindfsTarget;
-    if (sfuiOnly && !target && mntTarget) target = mntTarget;
     if (!target) {
-        // Unknown environments get one conservative mnt attempt first. Some
-        // Dopamine variants expose jbctl mounting even when no preference
-        // plist or pre-existing /mnt snapshot can be detected.
-        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
-        int mntMountStatus = 127;
-        if ([NSFileManager.defaultManager isExecutableFileAtPath:jbctl]) {
-            mntMountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-            for (NSUInteger attempt = 0; attempt < 15; attempt++) {
-                mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
-                if (mntTarget) break;
-                usleep(300000);
-            }
-            if (mntTarget) {
-                target = mntTarget;
-                prefersMnt = YES;
-            }
-        }
-        if (!target) {
-        NSString *mountDetails = nil;
-        NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
-        NSString *copyCommand = [NSString stringWithFormat:@"\"%@\" --copy  /System/Library/Fonts", mountBindfs];
-        int mountStatus = runToolCapturingOutput(shell, @[@"-c", copyCommand], &mountDetails);
-        for (NSUInteger attempt = 0; attempt < 10 && !bindfsTarget; attempt++) {
-            bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-            if (!bindfsTarget) usleep(300000);
-        }
-        if (bindfsTarget) {
-            target = bindfsTarget;
-            usesBindfs = YES;
-        } else if (mntTarget) {
-            target = mntTarget;
-        } else {
-            failure = [NSString stringWithFormat:
-                @"自动挂载失败：mnt=%d；mount_bindfs=%d（%@）。",
-                mntMountStatus, mountStatus,
-                mountDetails.length ? mountDetails : @"没有错误详情"];
-            goto fail;
-        }
-        }
-    }
-
-    if (!target) {
-        failure = @"未找到有效的 mnt 字体目录，mount_bindfs 也未生成有效 bindfs 字体目录。";
+        failure = @"FontChange 内置字体镜像不可用，请重新安装软件包后重试。";
         goto fail;
-    }
-
-    BOOL mountSaveDone = [NSFileManager.defaultManager fileExistsAtPath:mountSaveMarker];
-    if (usesBindfs && !mountSaveDone) {
-        NSString *shell = [NSString stringWithUTF8String:jbroot("/bin/sh")];
-        NSString *saveCommand = [NSString stringWithFormat:@"\"%@\" -s /System/Library/Fonts", mountBindfs];
-        saveStatus = runToolCapturingOutput(shell, @[@"-c", saveCommand], &saveDetails);
-        if (saveStatus == 0) {
-            [@"registered" writeToFile:mountSaveMarker
-                             atomically:YES
-                               encoding:NSUTF8StringEncoding
-                                  error:nil];
-            saveNote = @"；已完成首次 mount_bindfs -s 登记";
-        } else {
-            saveNote = [NSString stringWithFormat:
-                @"；警告：mount_bindfs -s 返回 %d（%@），不影响本次字体覆盖", saveStatus,
-                saveDetails.length ? saveDetails : @"没有错误详情"];
-        }
-    } else if (usesBindfs) {
-        saveNote = @"；已存在 mount_bindfs -s 登记，本次跳过";
     }
 
     if (!sfuiOnly) {
@@ -859,28 +571,11 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
     }
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
-    // The mnt snapshot was already rebuilt from the original system fonts
-    // before the custom files were copied. Remounting again here would create
-    // another pristine snapshot and silently discard the just-applied fonts.
-    if ([target containsString:@"/var/lib/fontchange-mount/"]) {
-        mountScheme = @"FontChange 内置挂载";
-    } else if (sfuiOnly && [target containsString:@"/bindfs/"] && !usesBindfs) {
-        mountScheme = @"bindfs（复用现有目录，未执行 --copy 或 -s）";
-    } else if ([target containsString:@"/bindfs/"]) {
-        if (mountSaveDone) mountScheme = @"bindfs（已执行 --copy，-s 已登记）";
-        else if (saveStatus == 0) mountScheme = @"bindfs（已执行 --copy 和首次 -s）";
-        else mountScheme = @"bindfs（已执行 --copy，首次 -s 失败）";
-    } else {
-        mountScheme = @"mnt（未执行任何挂载指令）";
-    }
-    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；原生索引=%lu 项；全局匹配覆盖=%lu 项；检测 zqbb=%@；挂载方案=%@%@%@", target,
+    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；原生索引=%lu 项；全局匹配覆盖=%lu 项；挂载方案=FontChange 内置挂载%@", target,
         (unsigned long)fontIndex.count,
         (unsigned long)replacedFileCount,
-        prefersMnt ? @"是（优先 mnt）" : @"否（优先 bindfs）",
-        mountScheme,
         sfuiOnly ? @"；仅替换 SFUISoft.ttc" :
-            (optionalSFUI ? @"；SFUISoft.ttc 使用可选字体" : @"；全部字体使用主要字体包"),
-        saveNote]);
+            (optionalSFUI ? @"；SFUISoft.ttc 使用可选字体" : @"；全部字体使用主要字体包")]);
     setSystemFontMarker(NO);
     [NSFileManager.defaultManager removeItemAtPath:work error:nil];
     return 0;
@@ -971,9 +666,6 @@ int main(int argc, char *argv[]) {
         }
         if ([mode isEqualToString:@"--detect-mount"] && argc == 2) {
             return detectMountMode();
-        }
-        if ([mode isEqualToString:@"--create-mnt-fonts"] && argc == 2) {
-            return createMntFontsMount();
         }
         if ([mode isEqualToString:@"--prepare-preview"] && argc == 5) {
             return preparePreview([NSString stringWithUTF8String:argv[2]],
