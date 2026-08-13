@@ -500,6 +500,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
                           originalLanguages:(NSArray<NSString *> *)originalLanguages;
 - (void)appendLogEntry:(NSString *)text;
 - (NSString *)formattedLogText;
+- (NSString *)previewCacheMetadataPath;
+- (void)savePreviewCacheMetadata;
 @end
 
 @implementation ViewController
@@ -507,7 +509,9 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.schemePreviewCache = [NSMutableDictionary dictionary];
+    NSDictionary *storedPreviewCache = [NSDictionary dictionaryWithContentsOfFile:self.previewCacheMetadataPath];
+    self.schemePreviewCache = [storedPreviewCache isKindOfClass:NSDictionary.class]
+        ? [storedPreviewCache mutableCopy] : [NSMutableDictionary dictionary];
     self.logEntries = [NSMutableArray array];
     self.selectedPreviewSlot = 0;
     self.title = @"";
@@ -826,6 +830,18 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     return [[self.importsDirectory stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Schemes.plist"];
 }
 
+- (NSString *)previewCacheMetadataPath {
+    return [[self.importsDirectory stringByDeletingLastPathComponent]
+        stringByAppendingPathComponent:@"PreviewCache.plist"];
+}
+
+- (void)savePreviewCacheMetadata {
+    NSString *parent = [self.previewCacheMetadataPath stringByDeletingLastPathComponent];
+    [NSFileManager.defaultManager createDirectoryAtPath:parent
+                            withIntermediateDirectories:YES attributes:nil error:nil];
+    [self.schemePreviewCache writeToFile:self.previewCacheMetadataPath atomically:YES];
+}
+
 - (void)cleanupOldImports {
     // Remove import caches created by older releases in the user-visible
     // Documents directory. Applied system fonts and the native mirror live
@@ -835,11 +851,23 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         [NSFileManager.defaultManager removeItemAtPath:legacyPath error:nil];
     }
     [NSFileManager.defaultManager createDirectoryAtPath:self.importsDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDate *lastRefresh = [defaults objectForKey:@"FontChangePreviewCacheLastRefresh"];
+    NSTimeInterval sevenDays = 7.0 * 24.0 * 60.0 * 60.0;
+    BOOL shouldRefresh = [lastRefresh isKindOfClass:NSDate.class]
+        && [NSDate.date timeIntervalSinceDate:lastRefresh] >= sevenDays;
+    if (![lastRefresh isKindOfClass:NSDate.class]) {
+        [defaults setObject:NSDate.date forKey:@"FontChangePreviewCacheLastRefresh"];
+    }
+    if (!shouldRefresh) return;
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
         if ([name hasPrefix:@"preview-"] && [name.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
             [NSFileManager.defaultManager removeItemAtPath:[self.importsDirectory stringByAppendingPathComponent:name] error:nil];
         }
     }
+    [self.schemePreviewCache removeAllObjects];
+    [self savePreviewCacheMetadata];
+    [defaults setObject:NSDate.date forKey:@"FontChangePreviewCacheLastRefresh"];
 }
 
 - (void)loadFontSchemes {
@@ -900,6 +928,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         if (path.length) [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         [self.schemePreviewCache removeObjectForKey:key];
     }
+    [self savePreviewCacheMetadata];
 }
 
 - (void)applySelectedScheme {
@@ -975,6 +1004,9 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
         [card loadFontAtPath:cached];
         return;
+    } else if (cached.length) {
+        [self.schemePreviewCache removeObjectForKey:cacheKey];
+        [self savePreviewCacheMetadata];
     }
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
         [NSString stringWithFormat:@"preview-card-%@.ttc", NSUUID.UUID.UUIDString]];
@@ -993,6 +1025,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (status != 0 || ![NSFileManager.defaultManager fileExistsAtPath:destination]) return;
             weakSelf.schemePreviewCache[cacheKey] = destination;
+            [weakSelf savePreviewCacheMetadata];
             if ([weakCard.schemeID isEqualToString:schemeID]) [weakCard loadFontAtPath:destination];
         });
     });
@@ -1270,8 +1303,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     BOOL hasCurrentScheme = [self selectedScheme] != nil;
     UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"导入字体"
         message:hasCurrentScheme
-            ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。"
-            : @"导入全局字体或建立一个仅锁屏字体方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。"
+            ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
+            : @"导入全局字体或建立一个仅锁屏字体方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
         preferredStyle:UIAlertControllerStyleActionSheet];
     [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体 ZIP" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self presentPickerForSlot:1];
@@ -1307,6 +1340,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
         if (![self.previewView loadFontAtPath:cached]) {
             [self.schemePreviewCache removeObjectForKey:cacheKey];
+            [self savePreviewCacheMetadata];
         } else {
             return;
         }
@@ -1327,6 +1361,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
             if (status == 0 && [NSFileManager.defaultManager fileExistsAtPath:destination]) {
                 NSString *replaced = self.schemePreviewCache[cacheKey];
                 self.schemePreviewCache[cacheKey] = destination;
+                [self savePreviewCacheMetadata];
                 if (replaced.length && ![replaced isEqualToString:destination]) {
                     [NSFileManager.defaultManager removeItemAtPath:replaced error:nil];
                 }
