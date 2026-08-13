@@ -733,18 +733,15 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
     curtain.backgroundColor = UIColor.systemBackgroundColor;
     curtain.userInteractionEnabled = YES;
 
-    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc]
-        initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleLarge];
-    [spinner startAnimating];
-    UILabel *title = [self label:@"正在刷新字体环境" size:23 color:UIColor.labelColor];
-    title.font = [UIFont systemFontOfSize:23 weight:UIFontWeightBold];
-    UILabel *message = [self label:@"正在切换语言并准备重启用户空间\n请勿操作设备" size:15
-                               color:UIColor.secondaryLabelColor];
-    UIStackView *content = [[UIStackView alloc] initWithArrangedSubviews:@[spinner, title, message]];
+    UIImage *lightImage = [UIImage imageNamed:@"ProcessingCurtainLight"];
+    UIImage *darkImage = [UIImage imageNamed:@"ProcessingCurtainDark"];
+    UIImageView *content = [[UIImageView alloc] initWithImage:lightImage];
     content.translatesAutoresizingMaskIntoConstraints = NO;
-    content.axis = UILayoutConstraintAxisVertical;
-    content.alignment = UIStackViewAlignmentCenter;
-    content.spacing = 14;
+    content.contentMode = UIViewContentModeScaleAspectFill;
+    content.clipsToBounds = YES;
+    if (@available(iOS 13.0, *)) {
+        content.image = self.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark ? darkImage : lightImage;
+    }
     [curtain addSubview:content];
     [self.view addSubview:curtain];
     [NSLayoutConstraint activateConstraints:@[
@@ -752,10 +749,10 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
         [curtain.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [curtain.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [curtain.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
-        [content.centerXAnchor constraintEqualToAnchor:curtain.centerXAnchor],
-        [content.centerYAnchor constraintEqualToAnchor:curtain.centerYAnchor],
-        [content.leadingAnchor constraintGreaterThanOrEqualToAnchor:curtain.leadingAnchor constant:30],
-        [content.trailingAnchor constraintLessThanOrEqualToAnchor:curtain.trailingAnchor constant:-30],
+        [content.leadingAnchor constraintEqualToAnchor:curtain.leadingAnchor],
+        [content.trailingAnchor constraintEqualToAnchor:curtain.trailingAnchor],
+        [content.topAnchor constraintEqualToAnchor:curtain.topAnchor],
+        [content.bottomAnchor constraintEqualToAnchor:curtain.bottomAnchor],
     ]];
     self.processingCurtain = curtain;
 }
