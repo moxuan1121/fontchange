@@ -555,7 +555,9 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.selectedSummaryButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     self.selectedSummaryButton.titleLabel.numberOfLines = 2;
     self.selectedSummaryButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    self.selectedSummaryButton.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
+    UIButtonConfiguration *summaryConfiguration = self.selectedSummaryButton.configuration;
+    summaryConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(0, 14, 0, 14);
+    self.selectedSummaryButton.configuration = summaryConfiguration;
     self.selectedSummaryButton.userInteractionEnabled = NO;
     self.selectedSummaryButton.layer.shadowOpacity = 0;
     self.selectedSummaryButton.layer.borderWidth = 0.6;
