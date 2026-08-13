@@ -598,6 +598,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSDictionary<NSString *, NSString *> *primarySources = nil;
     NSString *optionalSFUI = nil;
     NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
+    NSString *ownedMountTool = fontChangeMountTool();
+    int ownedMountStatus = 0;
     NSString *target = nil;
     BOOL usesBindfs = NO;
     BOOL prefersMnt = NO;
@@ -622,8 +624,6 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             goto fail;
         }
         if (!extractArchive(primaryZip, primaryExtract, &failure)) goto fail;
-        primarySources = primarySourcesForIndex(primaryExtract, fontIndex, &failure);
-        if (!primarySources) goto fail;
     }
 
     if (sfuiOnly && [optionalZip isEqualToString:@"-"]) {
@@ -657,12 +657,11 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     // Migrate to FontChange's own snapshot before building the filename
     // index. The mount tool first reveals the real read-only system tree,
     // creates a pristine mirror, and then mounts that mirror itself.
-    NSString *ownedMountTool = fontChangeMountTool();
     if (![NSFileManager.defaultManager isExecutableFileAtPath:ownedMountTool]) {
         failure = @"FontChange 内置挂载组件不存在，请重新安装完整软件包。";
         goto fail;
     }
-    int ownedMountStatus = runTool(ownedMountTool, @[@"prepare"]);
+    ownedMountStatus = runTool(ownedMountTool, @[@"prepare"]);
     if (ownedMountStatus != 0 || !fontChangeFontsTarget()) {
         failure = [NSString stringWithFormat:@"FontChange 内置字体挂载失败（%d）。", ownedMountStatus];
         goto fail;
@@ -673,6 +672,10 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     // Build this once from the original filename layout after migration.
     fontIndex = nativeFontIndex(&failure);
     if (!fontIndex) goto fail;
+    if (!sfuiOnly) {
+        primarySources = primarySourcesForIndex(primaryExtract, fontIndex, &failure);
+        if (!primarySources) goto fail;
+    }
 
     prefersMnt = hasZqbbFontMountPreference();
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
