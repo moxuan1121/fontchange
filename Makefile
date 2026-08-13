@@ -15,14 +15,21 @@ FontChange_RESOURCE_DIRS = App/Resources
 
 include $(THEOS_MAKE_PATH)/application.mk
 
-TOOL_NAME = fontchange-helper
+TOOL_NAME = fontchange-helper fontchange-mount
 fontchange-helper_FILES = Helper/main.m
 fontchange-helper_FRAMEWORKS = Foundation CoreFoundation
 fontchange-helper_CFLAGS = -fobjc-arc -Wall -Wextra
 fontchange-helper_CODESIGN_FLAGS = -SHelper/fontchange-helper.entitlements
 fontchange-helper_INSTALL_PATH = /usr/libexec
 
+fontchange-mount_FILES = Mount/main.m
+fontchange-mount_FRAMEWORKS = Foundation
+fontchange-mount_CFLAGS = -fobjc-arc -fblocks -Wall -Wextra
+fontchange-mount_CODESIGN_FLAGS = -SMount/fontchange-mount.entitlements
+fontchange-mount_INSTALL_PATH = /usr/libexec
+
 include $(THEOS_MAKE_PATH)/tool.mk
 
 after-stage::
 	chmod 6755 $(THEOS_STAGING_DIR)/usr/libexec/fontchange-helper
+	chmod 6755 $(THEOS_STAGING_DIR)/usr/libexec/fontchange-mount

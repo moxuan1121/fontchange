@@ -185,7 +185,7 @@ static NSDictionary<NSString *, NSString *> *nativeFontIndex(NSString **failure)
     NSString *currentVersion = NSProcessInfo.processInfo.operatingSystemVersionString;
     NSDictionary *stored = [NSDictionary dictionaryWithContentsOfFile:indexPath];
     NSDictionary *storedPaths = [stored[@"paths"] isKindOfClass:NSDictionary.class] ? stored[@"paths"] : nil;
-    if ([stored[@"schema"] integerValue] == 2 &&
+    if ([stored[@"schema"] integerValue] == 3 &&
         [stored[@"osVersion"] isEqualToString:currentVersion] && storedPaths.count > 0) {
         return storedPaths;
     }
@@ -225,7 +225,7 @@ static NSDictionary<NSString *, NSString *> *nativeFontIndex(NSString **failure)
     }
 
     NSDictionary *payload = @{
-        @"schema": @2,
+        @"schema": @3,
         @"osVersion": currentVersion ?: @"unknown",
         @"createdAt": @([[NSDate date] timeIntervalSince1970]),
         @"paths": paths
@@ -359,6 +359,26 @@ static NSString *validFontsTarget(NSString *relative) {
     return nil;
 }
 
+static NSString *fontChangeMountTool(void) {
+    return [NSString stringWithUTF8String:jbroot("/usr/libexec/fontchange-mount")];
+}
+
+static NSString *fontChangeFontsTarget(void) {
+    return validFontsTarget(@"/var/lib/fontchange-mount/System/Library/Fonts");
+}
+
+static BOOL fontChangeMountWasPrepared(void) {
+    NSString *enabled = [NSString stringWithUTF8String:jbroot("/var/lib/fontchange-mount/enabled")];
+    return [NSFileManager.defaultManager fileExistsAtPath:enabled] && fontChangeFontsTarget() != nil;
+}
+
+static BOOL fontChangeMountIsActive(void) {
+    NSString *tool = fontChangeMountTool();
+    return fontChangeMountWasPrepared() &&
+        [NSFileManager.defaultManager isExecutableFileAtPath:tool] &&
+        runTool(tool, @[@"status"]) == 0;
+}
+
 static BOOL copyFile(NSString *source, NSString *destination, NSString **failure) {
     NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
     int status = runTool(cp, @[@"-f", source, destination]);
@@ -408,6 +428,19 @@ static BOOL hasZqbbMountEnvironment(void) {
 static int restoreSystemFonts(void) {
     NSString *resultPath = @"/var/mobile/Documents/fontchange_last_result.txt";
     [NSFileManager.defaultManager removeItemAtPath:resultPath error:nil];
+    NSString *ownedMountTool = fontChangeMountTool();
+    if ([NSFileManager.defaultManager isExecutableFileAtPath:ownedMountTool] && fontChangeMountWasPrepared()) {
+        int ownedStatus = runTool(ownedMountTool, @[@"reset"]);
+        if (ownedStatus == 0 && fontChangeFontsTarget()) {
+            setSystemFontMarker(YES);
+            [@"恢复成功：FontChange 已从真实的 /System/Library/Fonts 重建原生字体镜像并重新挂载。"
+                writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            return 0;
+        }
+        NSString *message = [NSString stringWithFormat:@"恢复失败：FontChange 内置挂载重建失败（%d）。", ownedStatus];
+        [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return ownedStatus != 0 ? ownedStatus : 86;
+    }
     NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
     BOOL prefersMnt = hasZqbbFontMountPreference();
@@ -508,6 +541,7 @@ static int restoreSystemFonts(void) {
 }
 
 static int detectMountMode(void) {
+    if (fontChangeMountIsActive()) return 14;
     BOOL prefersMnt = hasZqbbFontMountPreference();
     NSString *mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     NSString *bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
@@ -578,11 +612,6 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSUInteger replacedFileCount = 0;
     NSError *directoryError = nil;
 
-    // Build this once from the real, read-only system font tree. Subsequent
-    // installs reuse it until the major iOS version changes.
-    fontIndex = nativeFontIndex(&failure);
-    if (!fontIndex) goto fail;
-
     if (!sfuiOnly) {
         if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
                                      withIntermediateDirectories:YES
@@ -625,10 +654,30 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
     }
 
+    // Migrate to FontChange's own snapshot before building the filename
+    // index. The mount tool first reveals the real read-only system tree,
+    // creates a pristine mirror, and then mounts that mirror itself.
+    NSString *ownedMountTool = fontChangeMountTool();
+    if (![NSFileManager.defaultManager isExecutableFileAtPath:ownedMountTool]) {
+        failure = @"FontChange 内置挂载组件不存在，请重新安装完整软件包。";
+        goto fail;
+    }
+    int ownedMountStatus = runTool(ownedMountTool, @[@"prepare"]);
+    if (ownedMountStatus != 0 || !fontChangeFontsTarget()) {
+        failure = [NSString stringWithFormat:@"FontChange 内置字体挂载失败（%d）。", ownedMountStatus];
+        goto fail;
+    }
+    target = fontChangeFontsTarget();
+    mountScheme = @"FontChange 内置挂载";
+
+    // Build this once from the original filename layout after migration.
+    fontIndex = nativeFontIndex(&failure);
+    if (!fontIndex) goto fail;
+
     prefersMnt = hasZqbbFontMountPreference();
     mntTarget = validFontsTarget(@"/mnt/System/Library/Fonts");
     bindfsTarget = validFontsTarget(@"/bindfs/System/Library/Fonts");
-    if (prefersMnt && mntTarget && !sfuiOnly) {
+    if (!target && prefersMnt && mntTarget && !sfuiOnly) {
         NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
         BOOL genericMount = hasGenericMountFontPreference();
         NSArray<NSString *> *unmountArguments = genericMount
@@ -676,7 +725,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             goto fail;
         }
         target = mntTarget;
-    } else if (prefersMnt && mntTarget) {
+    } else if (!target && prefersMnt && mntTarget) {
         target = mntTarget;
     }
     if (sfuiOnly && !target && bindfsTarget) target = bindfsTarget;
@@ -772,7 +821,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     // The mnt snapshot was already rebuilt from the original system fonts
     // before the custom files were copied. Remounting again here would create
     // another pristine snapshot and silently discard the just-applied fonts.
-    if (sfuiOnly && [target containsString:@"/bindfs/"] && !usesBindfs) {
+    if ([target containsString:@"/var/lib/fontchange-mount/"]) {
+        mountScheme = @"FontChange 内置挂载";
+    } else if (sfuiOnly && [target containsString:@"/bindfs/"] && !usesBindfs) {
         mountScheme = @"bindfs（复用现有目录，未执行 --copy 或 -s）";
     } else if ([target containsString:@"/bindfs/"]) {
         if (mountSaveDone) mountScheme = @"bindfs（已执行 --copy，-s 已登记）";

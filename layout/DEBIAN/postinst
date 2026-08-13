@@ -3,6 +3,10 @@ set -e
 
 chmod 6755 /usr/libexec/fontchange-helper
 chown root:wheel /usr/libexec/fontchange-helper
+chmod 6755 /usr/libexec/fontchange-mount
+chown root:wheel /usr/libexec/fontchange-mount
+chown root:wheel /Library/LaunchDaemons/com.moxuan.fontchange.mount.plist
+chmod 644 /Library/LaunchDaemons/com.moxuan.fontchange.mount.plist
 if command -v uicache >/dev/null 2>&1; then
     uicache -p /Applications/FontChange.app || true
 fi

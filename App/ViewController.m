@@ -458,11 +458,15 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
 - (void)detectMountMode {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
-        NSString *mode = status == 10 ? @"mnt" : (status == 11 ? @"bindfs" :
-            (status == 13 ? @"mnt-unmounted" : @"unknown"));
+        NSString *mode = status == 14 ? @"fontchange" : (status == 10 ? @"mnt" : (status == 11 ? @"bindfs" :
+            (status == 13 ? @"mnt-unmounted" : @"unknown")));
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mountMode = mode;
-            if ([mode isEqualToString:@"mnt"]) {
+            if ([mode isEqualToString:@"fontchange"]) {
+                self.mountLabel.text = @"● FontChange 内置挂载";
+                self.mountLabel.textColor = UIColor.systemGreenColor;
+                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
+            } else if ([mode isEqualToString:@"mnt"]) {
                 self.mountLabel.text = @"● mnt";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
                 self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
@@ -471,15 +475,13 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
                 self.mountLabel.textColor = UIColor.systemGreenColor;
                 self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
             } else if ([mode isEqualToString:@"mnt-unmounted"]) {
-                self.mountLabel.text = @"● mnt 配置存在 · 尚未挂载";
+                self.mountLabel.text = @"● 待迁移 · 执行时启用内置挂载";
                 self.mountLabel.textColor = UIColor.systemOrangeColor;
                 self.mountLabel.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
-                [self presentMissingMountWarningIfNeeded];
             } else {
-                self.mountLabel.text = @"● 未识别 · 执行时再次检测";
-                self.mountLabel.textColor = UIColor.secondaryLabelColor;
-                self.mountLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-                [self presentMissingMountWarningIfNeeded];
+                self.mountLabel.text = @"● 待初始化 · 首次执行自动创建";
+                self.mountLabel.textColor = UIColor.systemBlueColor;
+                self.mountLabel.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.10];
             }
             self.mountLabel.layer.cornerRadius = 12;
             self.mountLabel.layer.masksToBounds = YES;
