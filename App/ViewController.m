@@ -394,15 +394,15 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 
     _deleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _deleteButton.translatesAutoresizingMaskIntoConstraints = NO;
-    UIImageSymbolConfiguration *deleteSymbol = [UIImageSymbolConfiguration configurationWithPointSize:15
-        weight:UIImageSymbolWeightSemibold];
+    UIImageSymbolConfiguration *deleteSymbol = [UIImageSymbolConfiguration configurationWithPointSize:13
+        weight:UIImageSymbolWeightMedium];
     [_deleteButton setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:deleteSymbol]
                    forState:UIControlStateNormal];
     _deleteButton.tintColor = UIColor.systemOrangeColor;
-    _deleteButton.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.13];
+    _deleteButton.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.08];
     _deleteButton.layer.cornerRadius = 18;
     _deleteButton.layer.borderWidth = 0.6;
-    _deleteButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.22].CGColor;
+    _deleteButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.16].CGColor;
     _deleteButton.accessibilityLabel = @"删除字体方案";
 
     [self addSubview:_sampleView];
@@ -461,11 +461,11 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         : UIColor.secondarySystemBackgroundColor;
     self.deleteButton.tintColor = selected ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
     self.deleteButton.backgroundColor = selected
-        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.16]
-        : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.10];
+        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.10]
+        : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.06];
     self.deleteButton.layer.borderColor = (selected
-        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.28]
-        : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.14]).CGColor;
+        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.18]
+        : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.10]).CGColor;
 }
 
 @end
@@ -699,6 +699,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     UIButtonConfiguration *summaryConfiguration = [UIButtonConfiguration plainButtonConfiguration];
     summaryConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(0, 12, 0, 12);
     summaryConfiguration.baseForegroundColor = UIColor.secondaryLabelColor;
+    summaryConfiguration.titleLineBreakMode = NSLineBreakByClipping;
     self.selectedSummaryButton.configuration = summaryConfiguration;
     self.selectedSummaryButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     self.selectedSummaryButton.titleLabel.numberOfLines = 1;
@@ -735,13 +736,13 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     stack.spacing = 8;
     [stack setCustomSpacing:8 afterView:header];
     [stack setCustomSpacing:10 afterView:self.mountLabel];
-    [stack setCustomSpacing:10 afterView:self.previewView];
+    [stack setCustomSpacing:12 afterView:self.previewView];
     [stack setCustomSpacing:5 afterView:sectionLabel];
     [stack setCustomSpacing:3 afterView:schemeCarouselContainer];
     [stack setCustomSpacing:2 afterView:self.schemePageControl];
-    [stack setCustomSpacing:7 afterView:schemeHint];
-    [stack setCustomSpacing:7 afterView:importModule];
-    [stack setCustomSpacing:8 afterView:self.selectedSummaryButton];
+    [stack setCustomSpacing:9 afterView:schemeHint];
+    [stack setCustomSpacing:8 afterView:importModule];
+    [stack setCustomSpacing:10 afterView:self.selectedSummaryButton];
     [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         // Activate these only after the carousel and the controller view share
@@ -975,8 +976,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     }
     BOOL hasGlobal = self.primaryPath.length > 0;
     BOOL hasLock = self.optionalPath.length > 0;
-    NSString *mode = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏时钟"
-        : (hasGlobal ? @"全局字体" : @"自定义锁屏时钟");
+    NSString *mode = hasGlobal && hasLock ? @"全局 + 自定义时钟"
+        : (hasGlobal ? @"全局字体" : @"自定义时钟");
     [self.selectedSummaryButton setTitle:[NSString stringWithFormat:@"已选择：%@ · %@",
         scheme[@"name"] ?: @"字体方案", mode] forState:UIControlStateNormal];
     self.selectedSummaryButton.enabled = YES;
@@ -1080,8 +1081,10 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         BOOL hasGlobal = [scheme[@"primaryPath"] length] > 0;
         BOOL hasLock = [scheme[@"optionalPath"] length] > 0;
         BOOL selected = [scheme[@"id"] isEqualToString:self.selectedSchemeID];
-        card.detailLabel.text = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏时钟"
-            : (hasGlobal ? @"全局字体" : @"自定义锁屏时钟");
+        card.detailLabel.text = hasGlobal && hasLock ? @"全局 + 自定义时钟"
+            : (hasGlobal ? @"全局字体" : @"自定义时钟");
+        card.detailLabel.adjustsFontSizeToFitWidth = YES;
+        card.detailLabel.minimumScaleFactor = 0.78;
         card.tag = (NSInteger)index;
         card.deleteButton.tag = (NSInteger)index;
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
