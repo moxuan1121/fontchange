@@ -14,12 +14,14 @@ extern char **environ;
 @interface FCFontPreviewView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setDisplayName:(NSString *)name;
+- (void)setLockScreenPreview:(BOOL)lockScreenPreview;
 - (void)clearFont;
 @end
 
 @implementation FCFontPreviewView {
     CTFontRef _previewFont;
     NSString *_displayName;
+    BOOL _lockScreenPreview;
 }
 
 - (void)dealloc {
@@ -33,7 +35,9 @@ extern char **environ;
     }
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
-        NSString *probe = @"中文字体预览";
+        // A lock-screen font may intentionally contain only numerals. Select
+        // the best face using the same characters that the preview will draw.
+        NSString *probe = _lockScreenPreview ? @"0123456789" : @"中文字体预览";
         NSUInteger length = probe.length;
         UniChar *characters = calloc(length, sizeof(UniChar));
         CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
@@ -77,6 +81,12 @@ extern char **environ;
 
 - (void)setDisplayName:(NSString *)name {
     _displayName = [name copy];
+    [self setNeedsDisplay];
+}
+
+- (void)setLockScreenPreview:(BOOL)lockScreenPreview {
+    if (_lockScreenPreview == lockScreenPreview) return;
+    _lockScreenPreview = lockScreenPreview;
     [self setNeedsDisplay];
 }
 
@@ -146,16 +156,22 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
     UIColor *detailInk = [UIColor.secondaryLabelColor resolvedColorWithTraitCollection:self.traitCollection];
     CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 13.0, NULL);
-    CTFontRef headline = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 34.0, NULL, NULL)
-                                      : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 34.0, NULL);
+    CGFloat headlineSize = _lockScreenPreview ? 43.0 : 34.0;
+    CTFontRef headline = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, headlineSize, NULL, NULL)
+                                      : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, headlineSize, NULL);
     CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0, NULL, NULL)
                                     : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0, NULL);
     CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0, NULL);
-    FCDrawPreviewLine(context, @"实时预览", badge, ink, 20, 104, width - 40, 11);
+    FCDrawPreviewLine(context, _lockScreenPreview ? @"锁屏字体预览" : @"实时预览",
+                      badge, ink, 20, 104, width - 40, 11);
     if (_previewFont) {
-        FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61, width - 40, 18);
-        FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
-                          detailInk, 20, 29, width - 40, 12);
+        if (_lockScreenPreview) {
+            FCDrawPreviewLine(context, @"0123456789", headline, ink, 20, 49, width - 40, 22);
+        } else {
+            FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61, width - 40, 18);
+            FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
+                              detailInk, 20, 29, width - 40, 12);
+        }
         if (_displayName.length) {
             FCDrawPreviewName(context, _displayName, nameFont,
                               detailInk, width - 20, 9, width * 0.72);
@@ -191,7 +207,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     }
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
-        NSString *probe = @"Aa 字";
+        NSString *probe = @"Aa";
         NSUInteger length = probe.length;
         UniChar characters[8] = {0};
         CGGlyph glyphs[8] = {0};
@@ -235,7 +251,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
     };
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-        [[NSAttributedString alloc] initWithString:@"Aa 字" attributes:attributes]);
+        [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
     CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
     if (width > CGRectGetWidth(rect)) {
         CTFontRef fitted = CTFontCreateCopyWithAttributes(font, 31.0, NULL, NULL);
@@ -247,7 +263,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
             (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
         };
         line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-            [[NSAttributedString alloc] initWithString:@"Aa 字" attributes:attributes]);
+            [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
     }
     CGContextSetTextPosition(context, 0, 9);
     CTLineDraw(line, context);
@@ -289,13 +305,13 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 
     _nameLabel = [[UILabel alloc] init];
     _nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _nameLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    _nameLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     _nameLabel.textColor = UIColor.labelColor;
     _nameLabel.numberOfLines = 2;
 
     _detailLabel = [[UILabel alloc] init];
     _detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _detailLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightRegular];
+    _detailLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     _detailLabel.textColor = UIColor.secondaryLabelColor;
     _detailLabel.numberOfLines = 1;
 
@@ -310,20 +326,21 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [self addSubview:_detailLabel];
     [self addSubview:_deleteButton];
     [NSLayoutConstraint activateConstraints:@[
-        [_sampleView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
+        [_sampleView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_sampleView.trailingAnchor constraintLessThanOrEqualToAnchor:_deleteButton.leadingAnchor constant:-4],
-        [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:12],
-        [_sampleView.heightAnchor constraintEqualToConstant:52],
+        [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:14],
+        [_sampleView.heightAnchor constraintEqualToConstant:64],
         [_deleteButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
         [_deleteButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:8],
         [_deleteButton.widthAnchor constraintEqualToConstant:28],
         [_deleteButton.heightAnchor constraintEqualToConstant:28],
-        [_nameLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
-        [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
-        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:5],
-        [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
-        [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
-        [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-10],
+        [_nameLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
+        [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
+        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:4],
+        [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
+        [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
+        [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:3],
+        [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
     ]];
     [self setSelectedAppearance:NO];
     return self;
@@ -395,7 +412,20 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.restoreButton.layer.cornerRadius = 21;
     self.restoreButton.layer.shadowOpacity = 0.08;
     [self.restoreButton setImage:[UIImage systemImageNamed:@"arrow.counterclockwise"] forState:UIControlStateNormal];
-    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, self.restoreButton]];
+    self.logButton = [self button:@"" action:@selector(showLog)];
+    self.logButton.accessibilityLabel = @"运行日志";
+    self.logButton.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    self.logButton.tintColor = UIColor.systemOrangeColor;
+    self.logButton.layer.cornerRadius = 21;
+    self.logButton.layer.shadowOpacity = 0.04;
+    self.logButton.layer.borderWidth = 0.6;
+    self.logButton.layer.borderColor = UIColor.separatorColor.CGColor;
+    [self.logButton setImage:[UIImage systemImageNamed:@"doc.text.magnifyingglass"] forState:UIControlStateNormal];
+    UIStackView *headerActions = [[UIStackView alloc] initWithArrangedSubviews:@[self.logButton, self.restoreButton]];
+    headerActions.axis = UILayoutConstraintAxisHorizontal;
+    headerActions.alignment = UIStackViewAlignmentCenter;
+    headerActions.spacing = 8;
+    UIStackView *header = [[UIStackView alloc] initWithArrangedSubviews:@[titleLabel, headerActions]];
     header.axis = UILayoutConstraintAxisHorizontal;
     header.alignment = UIStackViewAlignmentCenter;
     header.distribution = UIStackViewDistributionEqualSpacing;
@@ -418,6 +448,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.previewView.layer.cornerRadius = 30;
     self.previewView.layer.masksToBounds = YES;
     self.previewView.layer.borderWidth = 0;
+    self.previewView.userInteractionEnabled = YES;
+    [self.previewView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(toggleSelectedPreview)]];
     self.schemeScrollView = [[UIScrollView alloc] init];
     self.schemeScrollView.translatesAutoresizingMaskIntoConstraints = NO;
     self.schemeScrollView.showsHorizontalScrollIndicator = NO;
@@ -455,13 +487,57 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.schemePageControl.pageIndicatorTintColor = UIColor.tertiaryLabelColor;
     [self.schemePageControl addTarget:self action:@selector(schemePageChanged:) forControlEvents:UIControlEventValueChanged];
 
-    self.importButton = [self button:@"导入字体" action:@selector(showImportMenu)];
-    [self.importButton setImage:[UIImage systemImageNamed:@"plus.circle.fill"] forState:UIControlStateNormal];
-    self.importButton.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    [self.importButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
-    self.importButton.tintColor = UIColor.systemOrangeColor;
-    self.importButton.layer.borderWidth = 1.0;
-    self.importButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.28].CGColor;
+    UILabel *schemeHint = [self label:@"左右滑动选择，点按卡片即可预览" size:11 color:UIColor.secondaryLabelColor];
+
+    UIView *importModule = [[UIView alloc] init];
+    importModule.translatesAutoresizingMaskIntoConstraints = NO;
+    importModule.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    importModule.layer.cornerRadius = 18;
+    importModule.layer.borderWidth = 0.7;
+    importModule.layer.borderColor = UIColor.separatorColor.CGColor;
+    UIImageView *importIcon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"archivebox.fill"]];
+    importIcon.translatesAutoresizingMaskIntoConstraints = NO;
+    importIcon.tintColor = UIColor.systemOrangeColor;
+    importIcon.contentMode = UIViewContentModeScaleAspectFit;
+    UILabel *importTitle = [self label:@"导入字体" size:16 color:UIColor.labelColor];
+    importTitle.translatesAutoresizingMaskIntoConstraints = NO;
+    importTitle.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    importTitle.textAlignment = NSTextAlignmentLeft;
+    UILabel *importSubtitle = [self label:@"支持 ZIP 字体包与 TTC 文件" size:11 color:UIColor.secondaryLabelColor];
+    importSubtitle.translatesAutoresizingMaskIntoConstraints = NO;
+    importSubtitle.textAlignment = NSTextAlignmentLeft;
+    UIStackView *importText = [[UIStackView alloc] initWithArrangedSubviews:@[importTitle, importSubtitle]];
+    importText.translatesAutoresizingMaskIntoConstraints = NO;
+    importText.axis = UILayoutConstraintAxisVertical;
+    importText.spacing = 2;
+    UIImageView *importChevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+    importChevron.translatesAutoresizingMaskIntoConstraints = NO;
+    importChevron.tintColor = UIColor.secondaryLabelColor;
+    importChevron.contentMode = UIViewContentModeScaleAspectFit;
+    [importModule addSubview:importIcon];
+    [importModule addSubview:importText];
+    [importModule addSubview:importChevron];
+    self.importButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.importButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.importButton addTarget:self action:@selector(showImportMenu) forControlEvents:UIControlEventTouchUpInside];
+    self.importButton.accessibilityLabel = @"导入字体";
+    [importModule addSubview:self.importButton];
+    [NSLayoutConstraint activateConstraints:@[
+        [importIcon.leadingAnchor constraintEqualToAnchor:importModule.leadingAnchor constant:16],
+        [importIcon.centerYAnchor constraintEqualToAnchor:importModule.centerYAnchor],
+        [importIcon.widthAnchor constraintEqualToConstant:34],
+        [importIcon.heightAnchor constraintEqualToConstant:34],
+        [importText.leadingAnchor constraintEqualToAnchor:importIcon.trailingAnchor constant:12],
+        [importText.centerYAnchor constraintEqualToAnchor:importModule.centerYAnchor],
+        [importText.trailingAnchor constraintLessThanOrEqualToAnchor:importChevron.leadingAnchor constant:-10],
+        [importChevron.trailingAnchor constraintEqualToAnchor:importModule.trailingAnchor constant:-16],
+        [importChevron.centerYAnchor constraintEqualToAnchor:importModule.centerYAnchor],
+        [importChevron.widthAnchor constraintEqualToConstant:12],
+        [self.importButton.leadingAnchor constraintEqualToAnchor:importModule.leadingAnchor],
+        [self.importButton.trailingAnchor constraintEqualToAnchor:importModule.trailingAnchor],
+        [self.importButton.topAnchor constraintEqualToAnchor:importModule.topAnchor],
+        [self.importButton.bottomAnchor constraintEqualToAnchor:importModule.bottomAnchor],
+    ]];
 
     self.statusLabel = [self label:@"准备就绪 · 请选择字体方案" size:13 color:UIColor.secondaryLabelColor];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
@@ -473,27 +549,19 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [self.statusLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
     [self.statusLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
 
-    self.selectedSummaryButton = [self button:@"尚未选择字体方案" action:@selector(toggleSelectedPreview)];
+    self.selectedSummaryButton = [self button:@"尚未选择字体方案" action:nil];
     self.selectedSummaryButton.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     [self.selectedSummaryButton setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
     self.selectedSummaryButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     self.selectedSummaryButton.titleLabel.numberOfLines = 2;
+    self.selectedSummaryButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    self.selectedSummaryButton.contentEdgeInsets = UIEdgeInsetsMake(0, 14, 0, 14);
+    self.selectedSummaryButton.userInteractionEnabled = NO;
     self.selectedSummaryButton.layer.shadowOpacity = 0;
     self.selectedSummaryButton.layer.borderWidth = 0.6;
     self.selectedSummaryButton.layer.borderColor = UIColor.separatorColor.CGColor;
-
-    self.logButton = [self button:@"日志" action:@selector(showLog)];
-    self.logButton.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    [self.logButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
-    self.logButton.tintColor = UIColor.systemOrangeColor;
-    self.logButton.layer.shadowOpacity = 0;
-    self.logButton.layer.borderWidth = 0.6;
-    self.logButton.layer.borderColor = UIColor.separatorColor.CGColor;
-    [self.logButton setImage:[UIImage systemImageNamed:@"doc.text.magnifyingglass"] forState:UIControlStateNormal];
-    UIStackView *selectionRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.selectedSummaryButton, self.logButton]];
-    selectionRow.axis = UILayoutConstraintAxisHorizontal;
-    selectionRow.spacing = 8;
-    selectionRow.distribution = UIStackViewDistributionFill;
+    [self.selectedSummaryButton setImage:[UIImage systemImageNamed:@"clipboard"] forState:UIControlStateNormal];
+    self.selectedSummaryButton.tintColor = UIColor.secondaryLabelColor;
 
     UIView *bottomSpacer = [[UIView alloc] init];
     bottomSpacer.backgroundColor = UIColor.clearColor;
@@ -507,7 +575,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
         header, self.mountLabel, self.previewView, sectionLabel, schemeCarouselContainer,
-        self.schemePageControl, self.importButton, selectionRow, bottomSpacer, self.runButton
+        self.schemePageControl, schemeHint, importModule, self.selectedSummaryButton, bottomSpacer, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisVertical;
@@ -516,10 +584,11 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [stack setCustomSpacing:10 afterView:self.mountLabel];
     [stack setCustomSpacing:10 afterView:self.previewView];
     [stack setCustomSpacing:5 afterView:sectionLabel];
-    [stack setCustomSpacing:1 afterView:schemeCarouselContainer];
-    [stack setCustomSpacing:5 afterView:self.schemePageControl];
-    [stack setCustomSpacing:7 afterView:self.importButton];
-    [stack setCustomSpacing:8 afterView:selectionRow];
+    [stack setCustomSpacing:3 afterView:schemeCarouselContainer];
+    [stack setCustomSpacing:2 afterView:self.schemePageControl];
+    [stack setCustomSpacing:7 afterView:schemeHint];
+    [stack setCustomSpacing:7 afterView:importModule];
+    [stack setCustomSpacing:8 afterView:self.selectedSummaryButton];
     [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
         // Activate these only after the carousel and the controller view share
@@ -532,15 +601,17 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],
         [stack.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-14],
         [header.heightAnchor constraintEqualToConstant:44],
+        [self.logButton.widthAnchor constraintEqualToConstant:42],
+        [self.logButton.heightAnchor constraintEqualToConstant:42],
         [self.restoreButton.widthAnchor constraintEqualToConstant:42],
         [self.restoreButton.heightAnchor constraintEqualToConstant:42],
         [self.mountLabel.heightAnchor constraintEqualToConstant:28],
-        [schemeCarouselContainer.heightAnchor constraintEqualToConstant:136],
+        [schemeCarouselContainer.heightAnchor constraintEqualToConstant:168],
         [self.previewView.heightAnchor constraintEqualToConstant:118],
-        [self.schemePageControl.heightAnchor constraintEqualToConstant:12],
-        [self.importButton.heightAnchor constraintEqualToConstant:44],
-        [selectionRow.heightAnchor constraintEqualToConstant:44],
-        [self.logButton.widthAnchor constraintEqualToConstant:78],
+        [self.schemePageControl.heightAnchor constraintEqualToConstant:14],
+        [schemeHint.heightAnchor constraintEqualToConstant:14],
+        [importModule.heightAnchor constraintEqualToConstant:62],
+        [self.selectedSummaryButton.heightAnchor constraintEqualToConstant:44],
         [bottomSpacer.heightAnchor constraintGreaterThanOrEqualToConstant:0],
         [self.runButton.heightAnchor constraintEqualToConstant:56],
     ]];
@@ -592,7 +663,9 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     button.layer.shadowOpacity = 0.12;
     button.layer.shadowRadius = 8;
     button.layer.shadowOffset = CGSizeMake(0, 4);
-    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    if (action) {
+        [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    }
     [button addTarget:self action:@selector(buttonTouchDown:) forControlEvents:UIControlEventTouchDown];
     [button addTarget:self action:@selector(buttonTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     return button;
@@ -686,7 +759,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.primaryDisplayName = scheme[@"primaryDisplayName"];
     self.optionalDisplayName = scheme[@"optionalDisplayName"];
     // A newly selected scheme always opens on the global preview. The user can
-    // tap the selected card or the summary row to switch to the lock preview.
+    // tap the large preview card to switch to the lock-screen preview.
     self.selectedPreviewSlot = self.primaryPath.length ? 1 : (self.optionalPath.length ? 2 : 0);
     if (self.selectedPreviewSlot) [self refreshFontPreviewForSlot:self.selectedPreviewSlot];
     else {
@@ -703,11 +776,12 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         self.selectedSummaryButton.enabled = NO;
         return;
     }
-    BOOL canToggle = self.primaryPath.length && self.optionalPath.length;
-    NSString *role = self.selectedPreviewSlot == 2 ? @"锁屏预览" : @"全局预览";
-    NSString *suffix = canToggle ? @" · 轻点切换" : @"";
-    [self.selectedSummaryButton setTitle:[NSString stringWithFormat:@"已选择：%@ · %@%@",
-        scheme[@"name"] ?: @"字体方案", role, suffix] forState:UIControlStateNormal];
+    BOOL hasGlobal = self.primaryPath.length > 0;
+    BOOL hasLock = self.optionalPath.length > 0;
+    NSString *mode = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏"
+        : (hasGlobal ? @"全局字体" : @"仅锁屏字体");
+    [self.selectedSummaryButton setTitle:[NSString stringWithFormat:@"已选择：%@ · %@",
+        scheme[@"name"] ?: @"字体方案", mode] forState:UIControlStateNormal];
     self.selectedSummaryButton.enabled = YES;
 }
 
@@ -720,13 +794,6 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     }
     if (self.selectedPreviewSlot) [self refreshFontPreviewForSlot:self.selectedPreviewSlot];
     [self updateSelectedSummary];
-    for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
-        if (![card isKindOfClass:FCFontSchemeCard.class] || ![card.schemeID isEqualToString:self.selectedSchemeID]) continue;
-        if (self.primaryPath.length && self.optionalPath.length) {
-            card.detailLabel.text = self.selectedPreviewSlot == 2
-                ? @"锁屏预览 · 轻点切换" : @"全局预览 · 轻点切换";
-        }
-    }
     self.statusLabel.text = self.selectedPreviewSlot == 2
         ? @"已切换到锁屏字体预览。" : @"已切换到全局字体预览。";
 }
@@ -794,17 +861,14 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         BOOL hasGlobal = [scheme[@"primaryPath"] length] > 0;
         BOOL hasLock = [scheme[@"optionalPath"] length] > 0;
         BOOL selected = [scheme[@"id"] isEqualToString:self.selectedSchemeID];
-        if (selected && hasGlobal && hasLock) {
-            card.detailLabel.text = self.selectedPreviewSlot == 2 ? @"锁屏预览 · 轻点切换" : @"全局预览 · 轻点切换";
-        } else {
-            card.detailLabel.text = hasGlobal && hasLock ? @"全局 + 自定义锁屏" : (hasGlobal ? @"全局字体" : @"仅锁屏字体");
-        }
+        card.detailLabel.text = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏"
+            : (hasGlobal ? @"全局字体" : @"仅锁屏字体");
         card.tag = (NSInteger)index;
         card.deleteButton.tag = (NSInteger)index;
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
         [card.deleteButton addTarget:self action:@selector(deleteSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
         [card setSelectedAppearance:selected];
-        [card.widthAnchor constraintEqualToConstant:166].active = YES;
+        [card.widthAnchor constraintEqualToConstant:150].active = YES;
         [self.schemeStackView addArrangedSubview:card];
         [self prepareSchemePreview:scheme forCard:card];
     }];
@@ -817,10 +881,6 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 - (void)selectSchemeCard:(FCFontSchemeCard *)card {
     if (card.schemeIndex < 0 || card.schemeIndex >= (NSInteger)self.fontSchemes.count) return;
     NSString *schemeID = self.fontSchemes[(NSUInteger)card.schemeIndex][@"id"];
-    if ([schemeID isEqualToString:self.selectedSchemeID]) {
-        [self toggleSelectedPreview];
-        return;
-    }
     self.selectedSchemeID = schemeID;
     [self applySelectedScheme];
     [self saveFontSchemes];
@@ -828,29 +888,32 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
         BOOL selected = [schemeCard.schemeID isEqualToString:self.selectedSchemeID];
         [schemeCard setSelectedAppearance:selected];
-        NSDictionary *cardScheme = schemeCard.schemeIndex >= 0 && schemeCard.schemeIndex < (NSInteger)self.fontSchemes.count
-            ? self.fontSchemes[(NSUInteger)schemeCard.schemeIndex] : nil;
-        BOOL hasGlobal = [cardScheme[@"primaryPath"] length] > 0;
-        BOOL hasLock = [cardScheme[@"optionalPath"] length] > 0;
-        if (selected && hasGlobal && hasLock) {
-            schemeCard.detailLabel.text = self.selectedPreviewSlot == 2
-                ? @"锁屏预览 · 轻点切换" : @"全局预览 · 轻点切换";
-        } else {
-            schemeCard.detailLabel.text = hasGlobal && hasLock ? @"全局 + 自定义锁屏"
-                : (hasGlobal ? @"全局字体" : @"仅锁屏字体");
-        }
     }
     self.statusLabel.text = [NSString stringWithFormat:@"已切换到“%@”；可直接预览或执行。",
         [self selectedScheme][@"name"] ?: @"字体方案"];
 }
 
 - (void)updateSchemePageControl {
+    NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
+    self.schemePageControl.numberOfPages = (NSInteger)cards.count;
     CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
-    CGFloat contentWidth = self.schemeScrollView.contentSize.width;
-    NSInteger pages = width > 0 ? MAX(1, (NSInteger)ceil(contentWidth / width)) : 1;
-    self.schemePageControl.numberOfPages = self.fontSchemes.count ? pages : 0;
-    NSInteger page = width > 0 ? (NSInteger)llround(self.schemeScrollView.contentOffset.x / width) : 0;
-    self.schemePageControl.currentPage = MAX(0, MIN(pages - 1, page));
+    if (cards.count == 0 || width <= 1.0) {
+        self.schemePageControl.currentPage = 0;
+        return;
+    }
+    CGFloat visibleCenter = self.schemeScrollView.contentOffset.x + width * 0.5;
+    NSInteger nearest = 0;
+    CGFloat nearestDistance = CGFLOAT_MAX;
+    for (NSInteger index = 0; index < (NSInteger)cards.count; index++) {
+        UIView *card = cards[index];
+        CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
+        CGFloat distance = fabs(center.x - visibleCenter);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearest = index;
+        }
+    }
+    self.schemePageControl.currentPage = nearest;
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
@@ -858,8 +921,15 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 }
 
 - (void)schemePageChanged:(UIPageControl *)sender {
+    NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
     CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
-    [self.schemeScrollView setContentOffset:CGPointMake(width * sender.currentPage, 0) animated:YES];
+    if (cards.count == 0 || width <= 1.0) return;
+    NSInteger index = MAX(0, MIN(sender.currentPage, (NSInteger)cards.count - 1));
+    UIView *card = cards[index];
+    CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
+    CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
+    CGFloat target = MAX(0, MIN(maxOffset, center.x - width * 0.5));
+    [self.schemeScrollView setContentOffset:CGPointMake(target, 0) animated:YES];
 }
 
 - (void)showLog {
@@ -924,6 +994,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 - (void)refreshFontPreviewForSlot:(NSInteger)slot {
     self.previewGeneration++;
     NSUInteger generation = self.previewGeneration;
+    [self.previewView setLockScreenPreview:(slot >= 2)];
     NSString *source = slot >= 2 ? self.optionalPath : self.primaryPath;
     if (!source.length) {
         [self.previewView clearFont];
