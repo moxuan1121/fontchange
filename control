@@ -1,6 +1,6 @@
 Package: com.moxuan.fontchange
 Name: FontChange
-Version: 2.3.0
+Version: 2.3.1
 Architecture: iphoneos-arm64e
 Description: Reuses the active RootHide font mount when available, falls back to FontChange's built-in mount, refreshes language caches, restores system fonts, and reboots userspace.
 Maintainer: moxuan1121

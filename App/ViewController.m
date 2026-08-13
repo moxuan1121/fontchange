@@ -447,8 +447,6 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [NSLayoutConstraint activateConstraints:@[
         [self.schemeScrollView.topAnchor constraintEqualToAnchor:schemeCarouselContainer.topAnchor],
         [self.schemeScrollView.bottomAnchor constraintEqualToAnchor:schemeCarouselContainer.bottomAnchor],
-        [self.schemeScrollView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
-        [self.schemeScrollView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
     ]];
 
     self.schemePageControl = [[UIPageControl alloc] init];
@@ -524,6 +522,11 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [stack setCustomSpacing:8 afterView:selectionRow];
     [self.view addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
+        // Activate these only after the carousel and the controller view share
+        // a common ancestor. iOS 15 throws an exception if cross-hierarchy
+        // constraints are activated while the carousel is still detached.
+        [self.schemeScrollView.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
+        [self.schemeScrollView.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
         [stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:24],
         [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-24],
         [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],
