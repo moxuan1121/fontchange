@@ -544,12 +544,31 @@ static NSString *preferredFontsTarget(BOOL sfuiOnly, NSString **scheme, NSString
     // must never decide where new fonts are written.
     target = mountedFontsTarget(&activeScheme);
     if (target) {
-        if (!sfuiOnly && ([activeScheme hasPrefix:@"mnt"] ||
-                          [activeScheme hasPrefix:@"mount_bindfs"])) {
-            return rebuildExternalFontsTarget(target, activeScheme, scheme, failure);
+        if (!sfuiOnly) {
+            if ([activeScheme hasPrefix:@"mnt"] || [activeScheme hasPrefix:@"mount_bindfs"]) {
+                return rebuildExternalFontsTarget(target, activeScheme, scheme, failure);
+            }
+            if ([activeScheme hasPrefix:@"FontChange"]) {
+                NSString *ownedTool = fontChangeMountTool();
+                int status = runTool(ownedTool, @[@"reset"]);
+                NSString *rebuiltScheme = nil;
+                NSString *rebuiltTarget = mountedFontsTarget(&rebuiltScheme);
+                if (status != 0 || !rebuiltTarget || ![rebuiltScheme hasPrefix:@"FontChange"]) {
+                    if (failure) *failure = [NSString stringWithFormat:
+                        @"FontChange 原生字体镜像重建失败（%d）。", status];
+                    return nil;
+                }
+                if (scheme) *scheme = @"FontChange 自带挂载（已重建完整原生字体镜像）";
+                return rebuiltTarget;
+            }
         }
         if (scheme) *scheme = activeScheme;
         return target;
+    }
+
+    if (sfuiOnly) {
+        if (failure) *failure = @"当前没有生效的字体挂载；仅替换 SFUISoft 时不会自动创建或重建挂载。";
+        return nil;
     }
 
     NSString *ownedTool = fontChangeMountTool();
@@ -581,14 +600,6 @@ static int restoreSystemFonts(void) {
     NSString *activeTarget = mountedFontsTarget(&activeScheme);
 
     if (activeTarget && [activeScheme hasPrefix:@"mnt"]) {
-        NSString *lowerTarget = activeTarget.lowercaseString;
-        if (![lowerTarget containsString:@"/mnt/system/library/fonts"] ||
-            [activeTarget isEqualToString:@"/System/Library/Fonts"]) {
-            [@"恢复失败：当前 mnt 字体快照路径校验失败，已停止操作。"
-                writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return 80;
-        }
-
         NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
         if (![NSFileManager.defaultManager isExecutableFileAtPath:jbctl]) {
             [@"恢复失败：当前为 mnt 挂载，但未找到 jbctl。"
@@ -604,61 +615,31 @@ static int restoreSystemFonts(void) {
         }
         int directUnmount = [NSFileManager.defaultManager isExecutableFileAtPath:umount]
             ? runTool(umount, @[@"-f", @"/System/Library/Fonts"]) : 127;
-        usleep(400000);
-
-        NSString *rm = [NSString stringWithUTF8String:jbroot("/bin/rm")];
-        int removeStatus = runTool(rm, @[@"-rf", @"--", activeTarget]);
-        if ([NSFileManager.defaultManager fileExistsAtPath:activeTarget]) {
-            NSString *message = [NSString stringWithFormat:
-                @"恢复失败：mnt 字体快照仍被占用。font_unmount=%d，path_unmount=%d，umount=%d，rm=%d。",
-                genericUnmount, pathUnmount, directUnmount, removeStatus];
-            [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return 82;
-        }
-
-        int mountStatus = runTool(jbctl, @[@"internal", @"font_mount"]);
-        NSString *mountedScheme = nil;
-        NSString *mountedTarget = nil;
-        for (NSUInteger attempt = 0; attempt < 25; attempt++) {
-            mountedTarget = mountedFontsTarget(&mountedScheme);
-            if (mountedTarget && [mountedScheme hasPrefix:@"mnt"]) break;
-            usleep(300000);
-        }
-        if (!mountedTarget) {
-            mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
-            for (NSUInteger attempt = 0; attempt < 25; attempt++) {
-                mountedTarget = mountedFontsTarget(&mountedScheme);
-                if (mountedTarget && [mountedScheme hasPrefix:@"mnt"]) break;
-                usleep(300000);
-            }
-        }
-        if (mountedTarget && [mountedScheme hasPrefix:@"mnt"]) {
+        usleep(500000);
+        if (!mountedFontsTarget(NULL)) {
             setSystemFontMarker(YES);
-            [@"恢复成功：已重新生成并挂载 mnt 原生字体快照。"
+            [@"恢复成功：已解除 mnt 字体挂载，系统将直接使用原生字体。"
                 writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return 0;
         }
-        NSString *message = [NSString stringWithFormat:@"恢复失败：mnt 未重新生成有效字体挂载（%d）。", mountStatus];
+        NSString *message = [NSString stringWithFormat:
+            @"恢复失败：mnt 字体挂载仍然生效。font_unmount=%d，path_unmount=%d，umount=%d。",
+            genericUnmount, pathUnmount, directUnmount];
         [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return mountStatus != 0 ? mountStatus : 83;
+        return 83;
     }
 
     if (activeTarget && [activeScheme hasPrefix:@"mount_bindfs"]) {
-        NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
-        if (![NSFileManager.defaultManager isExecutableFileAtPath:mountBindfs]) {
-            [@"恢复失败：当前为 mount_bindfs 挂载，但未找到 mount_bindfs。"
-                writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            return 84;
-        }
-        int status = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
-        NSString *verifiedScheme = nil;
-        if (status == 0 && mountedFontsTarget(&verifiedScheme) && [verifiedScheme hasPrefix:@"mount_bindfs"]) {
+        NSString *ownedMountTool = fontChangeMountTool();
+        int status = runTool(ownedMountTool, @[@"unmount"]);
+        usleep(500000);
+        if (status == 0 && !mountedFontsTarget(NULL)) {
             setSystemFontMarker(YES);
-            [@"恢复成功：mount_bindfs 已重新复制并挂载系统原生字体。"
+            [@"恢复成功：已解除 mount_bindfs 字体挂载，系统将直接使用原生字体。"
                 writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return 0;
         }
-        NSString *message = [NSString stringWithFormat:@"恢复失败：mount_bindfs 重建失败（%d）。", status];
+        NSString *message = [NSString stringWithFormat:@"恢复失败：mount_bindfs 字体挂载仍然生效（%d）。", status];
         [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         return status != 0 ? status : 85;
     }
@@ -675,14 +656,14 @@ static int restoreSystemFonts(void) {
         return 85;
     }
     {
-        int ownedStatus = runTool(ownedMountTool, @[@"reset"]);
-        if (ownedStatus == 0 && fontChangeFontsTarget()) {
+        int ownedStatus = runTool(ownedMountTool, @[@"disable"]);
+        if (ownedStatus == 0 && !mountedFontsTarget(NULL)) {
             setSystemFontMarker(YES);
-            [@"恢复成功：FontChange 已从真实的 /System/Library/Fonts 重建原生字体镜像并重新挂载。"
+            [@"恢复成功：已解除并禁用 FontChange 字体挂载，系统将直接使用原生字体。"
                 writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
             return 0;
         }
-        NSString *message = [NSString stringWithFormat:@"恢复失败：FontChange 内置挂载重建失败（%d）。", ownedStatus];
+        NSString *message = [NSString stringWithFormat:@"恢复失败：FontChange 内置字体挂载仍然生效（%d）。", ownedStatus];
         [message writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         return ownedStatus != 0 ? ownedStatus : 86;
     }

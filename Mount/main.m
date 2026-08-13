@@ -92,6 +92,13 @@ static int FCUnmountTarget(void) {
     });
 }
 
+static int FCDisable(void) {
+    int status = FCUnmountTarget();
+    if (status != 0) return status;
+    [NSFileManager.defaultManager removeItemAtPath:FCEnabledPath() error:nil];
+    return 0;
+}
+
 static int FCMountSnapshot(void) {
     if (FCOwnMountIsActive()) return 0;
     if (!FCValidFontTree(FCSourcePath())) return 93;
@@ -201,6 +208,7 @@ int main(int argc, char *argv[]) {
             return FCMountSnapshot();
         }
         if ([command isEqualToString:@"unmount"]) return FCUnmountTarget();
+        if ([command isEqualToString:@"disable"]) return FCDisable();
         if ([command isEqualToString:@"reset"]) return FCReset();
         if ([command isEqualToString:@"daemon"]) return FCDaemon();
         return 64;
