@@ -120,6 +120,37 @@ static void FCDrawPreviewLine(CGContextRef context, NSString *text, CTFontRef so
     CFRelease(font);
 }
 
+static void FCDrawCenteredPreviewLine(CGContextRef context, NSString *text, CTFontRef sourceFont,
+                                      UIColor *color, CGFloat centerX, CGFloat baseline,
+                                      CGFloat maxWidth, CGFloat minimumSize) {
+    CTFontRef font = CFRetain(sourceFont);
+    NSDictionary *attributes = @{
+        (__bridge id)kCTFontAttributeName: (__bridge id)font,
+        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+    };
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+    CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    if (width > maxWidth) {
+        CGFloat size = MAX(minimumSize, CTFontGetSize(font) * maxWidth / MAX(1.0, width));
+        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, size, NULL, NULL);
+        CFRelease(font);
+        font = fitted;
+        CFRelease(line);
+        attributes = @{
+            (__bridge id)kCTFontAttributeName: (__bridge id)font,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+        };
+        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+        width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    }
+    CGContextSetTextPosition(context, centerX - width * 0.5, baseline);
+    CTLineDraw(line, context);
+    CFRelease(line);
+    CFRelease(font);
+}
+
 static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef font,
                               UIColor *color, CGFloat right, CGFloat baseline, CGFloat maxWidth) {
     NSDictionary *attributes = @{
@@ -153,31 +184,33 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
     CGFloat width = CGRectGetWidth(rect);
+    CGFloat scale = MAX(1.0, CGRectGetHeight(rect) / 118.0);
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
     UIColor *detailInk = [UIColor.secondaryLabelColor resolvedColorWithTraitCollection:self.traitCollection];
-    CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 13.0, NULL);
-    CGFloat headlineSize = _lockScreenPreview ? 43.0 : 34.0;
+    CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 13.0 * scale, NULL);
+    CGFloat headlineSize = (_lockScreenPreview ? 43.0 : 34.0) * scale;
     CTFontRef headline = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, headlineSize, NULL, NULL)
                                       : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, headlineSize, NULL);
-    CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0, NULL, NULL)
-                                    : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0, NULL);
-    CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0, NULL);
+    CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0 * scale, NULL, NULL)
+                                    : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0 * scale, NULL);
+    CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0 * scale, NULL);
     FCDrawPreviewLine(context, _lockScreenPreview ? @"锁屏字体预览" : @"实时预览",
-                      badge, ink, 20, 104, width - 40, 11);
+                      badge, ink, 20, 104 * scale, width - 40, 11 * scale);
     if (_previewFont) {
         if (_lockScreenPreview) {
-            FCDrawPreviewLine(context, @"0123456789", headline, ink, 20, 49, width - 40, 22);
+            FCDrawCenteredPreviewLine(context, @"0123456789", headline, ink, width * 0.5,
+                                      49 * scale, width - 40, 22 * scale);
         } else {
-            FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61, width - 40, 18);
+            FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61 * scale, width - 40, 18 * scale);
             FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
-                              detailInk, 20, 29, width - 40, 12);
+                              detailInk, 20, 29 * scale, width - 40, 12 * scale);
         }
         if (_displayName.length) {
             FCDrawPreviewName(context, _displayName, nameFont,
-                              detailInk, width - 20, 9, width * 0.72);
+                              detailInk, width - 20, 9 * scale, width * 0.72);
         }
     } else {
-        FCDrawPreviewLine(context, @"导入字体后，在这里实时预览。", headline, ink, 20, 55, width - 40, 18);
+        FCDrawPreviewLine(context, @"导入字体后，在这里实时预览。", headline, ink, 20, 55 * scale, width - 40, 18 * scale);
     }
     CFRelease(badge);
     CFRelease(headline);
@@ -308,6 +341,10 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     _nameLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     _nameLabel.textColor = UIColor.labelColor;
     _nameLabel.numberOfLines = 2;
+    _nameLabel.adjustsFontSizeToFitWidth = YES;
+    _nameLabel.minimumScaleFactor = 0.62;
+    _nameLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
+    _nameLabel.lineBreakMode = NSLineBreakByCharWrapping;
 
     _detailLabel = [[UILabel alloc] init];
     _detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -317,8 +354,15 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 
     _deleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _deleteButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [_deleteButton setImage:[UIImage systemImageNamed:@"xmark.circle.fill"] forState:UIControlStateNormal];
-    _deleteButton.tintColor = UIColor.tertiaryLabelColor;
+    UIImageSymbolConfiguration *deleteSymbol = [UIImageSymbolConfiguration configurationWithPointSize:15
+        weight:UIImageSymbolWeightSemibold];
+    [_deleteButton setImage:[UIImage systemImageNamed:@"xmark" withConfiguration:deleteSymbol]
+                   forState:UIControlStateNormal];
+    _deleteButton.tintColor = UIColor.systemOrangeColor;
+    _deleteButton.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.13];
+    _deleteButton.layer.cornerRadius = 18;
+    _deleteButton.layer.borderWidth = 0.6;
+    _deleteButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.22].CGColor;
     _deleteButton.accessibilityLabel = @"删除字体方案";
 
     [self addSubview:_sampleView];
@@ -327,23 +371,42 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [self addSubview:_deleteButton];
     [NSLayoutConstraint activateConstraints:@[
         [_sampleView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
-        [_sampleView.trailingAnchor constraintLessThanOrEqualToAnchor:_deleteButton.leadingAnchor constant:-4],
+        [_sampleView.trailingAnchor constraintEqualToAnchor:_deleteButton.leadingAnchor constant:-8],
         [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:14],
         [_sampleView.heightAnchor constraintEqualToConstant:64],
-        [_deleteButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-8],
-        [_deleteButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:8],
-        [_deleteButton.widthAnchor constraintEqualToConstant:28],
-        [_deleteButton.heightAnchor constraintEqualToConstant:28],
+        [_deleteButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
+        [_deleteButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:10],
+        [_deleteButton.widthAnchor constraintEqualToConstant:36],
+        [_deleteButton.heightAnchor constraintEqualToConstant:36],
         [_nameLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
-        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:4],
+        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:9],
         [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
-        [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:3],
+        [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:8],
         [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
     ]];
     [self setSelectedAppearance:NO];
     return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (!self.nameLabel.text.length || CGRectGetWidth(self.nameLabel.bounds) <= 1.0) return;
+    CGFloat availableWidth = CGRectGetWidth(self.nameLabel.bounds);
+    CGFloat availableHeight = 36.0;
+    CGFloat fittedSize = 14.0;
+    while (fittedSize > 8.0) {
+        UIFont *font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
+        CGRect measured = [self.nameLabel.text boundingRectWithSize:CGSizeMake(availableWidth, CGFLOAT_MAX)
+            options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+            attributes:@{NSFontAttributeName: font} context:nil];
+        if (CGRectGetHeight(measured) <= availableHeight + 0.5) break;
+        fittedSize -= 0.5;
+    }
+    if (fabs(self.nameLabel.font.pointSize - fittedSize) > 0.1) {
+        self.nameLabel.font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
+    }
 }
 
 - (BOOL)loadFontAtPath:(NSString *)path {
@@ -356,8 +419,27 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.backgroundColor = selected
         ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.10]
         : UIColor.secondarySystemBackgroundColor;
+    self.deleteButton.tintColor = selected ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
+    self.deleteButton.backgroundColor = selected
+        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.16]
+        : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.10];
+    self.deleteButton.layer.borderColor = (selected
+        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.28]
+        : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.14]).CGColor;
 }
 
+@end
+
+@interface FCLogLabel : UILabel
+@property(nonatomic, copy) void (^textDidChange)(NSString *text);
+@end
+
+@implementation FCLogLabel
+- (void)setText:(NSString *)text {
+    BOOL changed = ![self.text isEqualToString:text];
+    [super setText:text];
+    if (changed && text.length && self.textDidChange) self.textDidChange(text);
+}
 @end
 
 @interface ViewController () <UIDocumentPickerDelegate, UIScrollViewDelegate>
@@ -378,15 +460,22 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 @property(nonatomic, strong) UIPageControl *schemePageControl;
 @property(nonatomic, strong) UIButton *selectedSummaryButton;
 @property(nonatomic, strong) UIButton *logButton;
+@property(nonatomic, strong) NSMutableArray<NSString *> *logEntries;
+@property(nonatomic, strong) UIView *logOverlay;
+@property(nonatomic, strong) UIView *logSheet;
+@property(nonatomic, strong) UITextView *logTextView;
 @property(nonatomic, strong) NSMutableArray<NSMutableDictionary *> *fontSchemes;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *schemePreviewCache;
 @property(nonatomic, copy) NSString *selectedSchemeID;
 @property(nonatomic) NSInteger selectedPreviewSlot;
 @property(nonatomic, strong) UIView *processingCurtain;
 @property(nonatomic) NSUInteger previewGeneration;
+@property(nonatomic) BOOL previewTransitioning;
 @property(nonatomic) BOOL restoringSystemFonts;
 - (void)continueLanguageRefreshWithLanguage:(NSString *)language
                           originalLanguages:(NSArray<NSString *> *)originalLanguages;
+- (void)appendLogEntry:(NSString *)text;
+- (NSString *)formattedLogText;
 @end
 
 @implementation ViewController
@@ -395,6 +484,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.schemePreviewCache = [NSMutableDictionary dictionary];
+    self.logEntries = [NSMutableArray array];
     self.selectedPreviewSlot = 0;
     self.title = @"";
     self.view.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
@@ -445,7 +535,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
             ? [UIColor colorWithRed:0.30 green:0.16 blue:0.11 alpha:1.0]
             : [UIColor colorWithRed:1.0 green:0.78 blue:0.66 alpha:1.0];
     }];
-    self.previewView.layer.cornerRadius = 30;
+    self.previewView.layer.cornerRadius = 45;
     self.previewView.layer.masksToBounds = YES;
     self.previewView.layer.borderWidth = 0;
     self.previewView.userInteractionEnabled = YES;
@@ -539,7 +629,16 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         [self.importButton.bottomAnchor constraintEqualToAnchor:importModule.bottomAnchor],
     ]];
 
-    self.statusLabel = [self label:@"准备就绪 · 请选择字体方案" size:13 color:UIColor.secondaryLabelColor];
+    FCLogLabel *logLabel = [[FCLogLabel alloc] init];
+    logLabel.text = @"准备就绪 · 请选择字体方案";
+    logLabel.font = [UIFont systemFontOfSize:13];
+    logLabel.textColor = UIColor.secondaryLabelColor;
+    logLabel.textAlignment = NSTextAlignmentCenter;
+    logLabel.numberOfLines = 0;
+    __weak typeof(self) weakSelf = self;
+    logLabel.textDidChange = ^(NSString *text) { [weakSelf appendLogEntry:text]; };
+    self.statusLabel = logLabel;
+    [self appendLogEntry:self.statusLabel.text];
     self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.statusLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     self.statusLabel.layer.cornerRadius = 18;
@@ -553,16 +652,20 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.selectedSummaryButton.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     [self.selectedSummaryButton setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
     self.selectedSummaryButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
-    self.selectedSummaryButton.titleLabel.numberOfLines = 2;
-    self.selectedSummaryButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    UIButtonConfiguration *summaryConfiguration = self.selectedSummaryButton.configuration;
-    summaryConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(0, 14, 0, 14);
-    self.selectedSummaryButton.configuration = summaryConfiguration;
+    self.selectedSummaryButton.titleLabel.numberOfLines = 1;
+    self.selectedSummaryButton.titleLabel.textAlignment = NSTextAlignmentCenter;
+    self.selectedSummaryButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+    self.selectedSummaryButton.titleLabel.minimumScaleFactor = 0.5;
+    self.selectedSummaryButton.titleLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
+    self.selectedSummaryButton.titleLabel.lineBreakMode = NSLineBreakByClipping;
+    self.selectedSummaryButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
+    self.selectedSummaryButton.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
     self.selectedSummaryButton.userInteractionEnabled = NO;
+    self.selectedSummaryButton.clipsToBounds = YES;
     self.selectedSummaryButton.layer.shadowOpacity = 0;
     self.selectedSummaryButton.layer.borderWidth = 0.6;
     self.selectedSummaryButton.layer.borderColor = UIColor.separatorColor.CGColor;
-    [self.selectedSummaryButton setImage:[UIImage systemImageNamed:@"clipboard"] forState:UIControlStateNormal];
+    [self.selectedSummaryButton setImage:nil forState:UIControlStateNormal];
     self.selectedSummaryButton.tintColor = UIColor.secondaryLabelColor;
 
     UIView *bottomSpacer = [[UIView alloc] init];
@@ -609,7 +712,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         [self.restoreButton.heightAnchor constraintEqualToConstant:42],
         [self.mountLabel.heightAnchor constraintEqualToConstant:28],
         [schemeCarouselContainer.heightAnchor constraintEqualToConstant:168],
-        [self.previewView.heightAnchor constraintEqualToConstant:118],
+        [self.previewView.heightAnchor constraintEqualToConstant:177],
         [self.schemePageControl.heightAnchor constraintEqualToConstant:14],
         [schemeHint.heightAnchor constraintEqualToConstant:14],
         [importModule.heightAnchor constraintEqualToConstant:62],
@@ -754,6 +857,24 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     return nil;
 }
 
+- (NSString *)previewCacheKeyForSchemeID:(NSString *)schemeID
+                                    kind:(NSString *)kind
+                                  source:(NSString *)source {
+    return [NSString stringWithFormat:@"%@|%@|%@", schemeID ?: @"", kind ?: @"", source ?: @""];
+}
+
+- (void)invalidatePreviewCacheForSchemeID:(NSString *)schemeID {
+    if (!schemeID.length) return;
+    NSString *prefix = [schemeID stringByAppendingString:@"|"];
+    NSArray<NSString *> *keys = self.schemePreviewCache.allKeys.copy;
+    for (NSString *key in keys) {
+        if (![key hasPrefix:prefix]) continue;
+        NSString *path = self.schemePreviewCache[key];
+        if (path.length) [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        [self.schemePreviewCache removeObjectForKey:key];
+    }
+}
+
 - (void)applySelectedScheme {
     NSDictionary *scheme = [self selectedScheme];
     self.primaryPath = scheme[@"primaryPath"];
@@ -790,11 +911,28 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 - (void)toggleSelectedPreview {
     if (![self selectedScheme]) return;
     if (self.primaryPath.length && self.optionalPath.length) {
+        if (self.previewTransitioning) return;
         self.selectedPreviewSlot = self.selectedPreviewSlot == 2 ? 1 : 2;
+        BOOL showingLockScreen = self.selectedPreviewSlot == 2;
+        self.previewTransitioning = YES;
+        self.previewView.userInteractionEnabled = NO;
+        UIViewAnimationOptions direction = showingLockScreen
+            ? UIViewAnimationOptionTransitionFlipFromRight
+            : UIViewAnimationOptionTransitionFlipFromLeft;
+        __weak typeof(self) weakSelf = self;
+        [UIView transitionWithView:self.previewView
+                          duration:0.42
+                           options:direction | UIViewAnimationOptionCurveEaseInOut
+                        animations:^{
+            [weakSelf refreshFontPreviewForSlot:weakSelf.selectedPreviewSlot];
+        } completion:^(__unused BOOL finished) {
+            weakSelf.previewTransitioning = NO;
+            weakSelf.previewView.userInteractionEnabled = YES;
+        }];
     } else {
         self.selectedPreviewSlot = self.primaryPath.length ? 1 : (self.optionalPath.length ? 2 : 0);
+        if (self.selectedPreviewSlot) [self refreshFontPreviewForSlot:self.selectedPreviewSlot];
     }
-    if (self.selectedPreviewSlot) [self refreshFontPreviewForSlot:self.selectedPreviewSlot];
     [self updateSelectedSummary];
     self.statusLabel.text = self.selectedPreviewSlot == 2
         ? @"已切换到锁屏字体预览。" : @"已切换到全局字体预览。";
@@ -804,7 +942,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     NSString *source = [scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"];
     if (!source.length) return;
     NSString *kind = [scheme[@"primaryPath"] length] ? @"primary" : @"optional";
-    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@|%@", scheme[@"id"] ?: @"", kind, source];
+    NSString *cacheKey = [self previewCacheKeyForSchemeID:scheme[@"id"] kind:kind source:source];
     NSString *cached = self.schemePreviewCache[cacheKey];
     if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
         [card loadFontAtPath:cached];
@@ -934,15 +1072,145 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [self.schemeScrollView setContentOffset:CGPointMake(target, 0) animated:YES];
 }
 
+- (void)appendLogEntry:(NSString *)text {
+    if (!text.length) return;
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
+    formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+    NSString *entry = [NSString stringWithFormat:@"[%@]\n%@", [formatter stringFromDate:NSDate.date], text];
+    [self.logEntries addObject:entry];
+    if (self.logEntries.count > 200) {
+        [self.logEntries removeObjectsInRange:NSMakeRange(0, self.logEntries.count - 200)];
+    }
+    if (self.logTextView) {
+        self.logTextView.text = [self formattedLogText];
+        [self.logTextView scrollRangeToVisible:NSMakeRange(self.logTextView.text.length, 0)];
+    }
+}
+
+- (NSString *)formattedLogText {
+    return self.logEntries.count ? [self.logEntries componentsJoinedByString:@"\n\n"] : @"暂无运行日志";
+}
+
+- (void)copyLog {
+    if (!self.logEntries.count) return;
+    UIPasteboard.generalPasteboard.string = [self formattedLogText];
+}
+
+- (void)clearLog {
+    [self.logEntries removeAllObjects];
+    self.logTextView.text = [self formattedLogText];
+}
+
+- (void)dismissLog {
+    if (!self.logOverlay) return;
+    UIView *overlay = self.logOverlay;
+    UIView *sheet = self.logSheet;
+    self.logOverlay = nil;
+    self.logSheet = nil;
+    self.logTextView = nil;
+    [UIView animateWithDuration:0.25 animations:^{
+        overlay.backgroundColor = UIColor.clearColor;
+        sheet.transform = CGAffineTransformMakeTranslation(0, CGRectGetHeight(sheet.bounds) + 24);
+    } completion:^(__unused BOOL finished) {
+        [overlay removeFromSuperview];
+    }];
+}
+
 - (void)showLog {
-    NSString *log = self.statusLabel.text.length ? self.statusLabel.text : @"暂无运行日志。";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"运行日志"
-        message:log preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"复制" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        UIPasteboard.generalPasteboard.string = log;
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+    if (self.logOverlay || !self.view.window) return;
+    UIWindow *window = self.view.window;
+    UIControl *overlay = [[UIControl alloc] init];
+    overlay.translatesAutoresizingMaskIntoConstraints = NO;
+    overlay.backgroundColor = UIColor.clearColor;
+    [overlay addTarget:self action:@selector(dismissLog) forControlEvents:UIControlEventTouchUpInside];
+    [window addSubview:overlay];
+
+    UIView *sheet = [[UIView alloc] init];
+    sheet.translatesAutoresizingMaskIntoConstraints = NO;
+    sheet.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    sheet.layer.cornerRadius = 26;
+    sheet.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    sheet.layer.shadowColor = UIColor.blackColor.CGColor;
+    sheet.layer.shadowOpacity = 0.18;
+    sheet.layer.shadowRadius = 20;
+    sheet.layer.shadowOffset = CGSizeMake(0, -5);
+    [overlay addSubview:sheet];
+
+    UILabel *title = [[UILabel alloc] init];
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    title.text = @"运行日志";
+    title.font = [UIFont systemFontOfSize:18 weight:UIFontWeightBold];
+    title.textColor = UIColor.labelColor;
+
+    UIButton *clearButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    clearButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [clearButton setImage:[UIImage systemImageNamed:@"trash"] forState:UIControlStateNormal];
+    [clearButton setTitle:@" 清理" forState:UIControlStateNormal];
+    clearButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    clearButton.tintColor = UIColor.systemRedColor;
+    clearButton.accessibilityLabel = @"清理日志";
+    [clearButton addTarget:self action:@selector(clearLog) forControlEvents:UIControlEventTouchUpInside];
+
+    UIButton *copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    copyButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [copyButton setImage:[UIImage systemImageNamed:@"doc.on.doc"] forState:UIControlStateNormal];
+    [copyButton setTitle:@" 复制" forState:UIControlStateNormal];
+    copyButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+    copyButton.tintColor = UIColor.systemOrangeColor;
+    copyButton.accessibilityLabel = @"复制日志";
+    [copyButton addTarget:self action:@selector(copyLog) forControlEvents:UIControlEventTouchUpInside];
+
+    UIStackView *actions = [[UIStackView alloc] initWithArrangedSubviews:@[clearButton, copyButton]];
+    actions.translatesAutoresizingMaskIntoConstraints = NO;
+    actions.axis = UILayoutConstraintAxisHorizontal;
+    actions.spacing = 14;
+
+    UITextView *textView = [[UITextView alloc] init];
+    textView.translatesAutoresizingMaskIntoConstraints = NO;
+    textView.editable = NO;
+    textView.selectable = YES;
+    textView.backgroundColor = [UIColor tertiarySystemBackgroundColor];
+    textView.textColor = UIColor.labelColor;
+    textView.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
+    textView.textContainerInset = UIEdgeInsetsMake(12, 12, 12, 12);
+    textView.layer.cornerRadius = 14;
+    textView.text = [self formattedLogText];
+
+    [sheet addSubview:title];
+    [sheet addSubview:actions];
+    [sheet addSubview:textView];
+    [NSLayoutConstraint activateConstraints:@[
+        [overlay.leadingAnchor constraintEqualToAnchor:window.leadingAnchor],
+        [overlay.trailingAnchor constraintEqualToAnchor:window.trailingAnchor],
+        [overlay.topAnchor constraintEqualToAnchor:window.topAnchor],
+        [overlay.bottomAnchor constraintEqualToAnchor:window.bottomAnchor],
+        [sheet.leadingAnchor constraintEqualToAnchor:overlay.leadingAnchor],
+        [sheet.trailingAnchor constraintEqualToAnchor:overlay.trailingAnchor],
+        [sheet.bottomAnchor constraintEqualToAnchor:overlay.bottomAnchor],
+        [sheet.heightAnchor constraintEqualToAnchor:overlay.heightAnchor multiplier:0.26],
+        [title.leadingAnchor constraintEqualToAnchor:sheet.leadingAnchor constant:20],
+        [title.topAnchor constraintEqualToAnchor:sheet.topAnchor constant:16],
+        [actions.trailingAnchor constraintEqualToAnchor:sheet.trailingAnchor constant:-20],
+        [actions.centerYAnchor constraintEqualToAnchor:title.centerYAnchor],
+        [actions.leadingAnchor constraintGreaterThanOrEqualToAnchor:title.trailingAnchor constant:12],
+        [textView.leadingAnchor constraintEqualToAnchor:sheet.leadingAnchor constant:16],
+        [textView.trailingAnchor constraintEqualToAnchor:sheet.trailingAnchor constant:-16],
+        [textView.topAnchor constraintEqualToAnchor:title.bottomAnchor constant:12],
+        [textView.bottomAnchor constraintEqualToAnchor:sheet.safeAreaLayoutGuide.bottomAnchor constant:-10],
+    ]];
+    self.logOverlay = overlay;
+    self.logSheet = sheet;
+    self.logTextView = textView;
+    [window layoutIfNeeded];
+    sheet.transform = CGAffineTransformMakeTranslation(0, CGRectGetHeight(sheet.bounds) + 24);
+    [UIView animateWithDuration:0.32 delay:0
+         usingSpringWithDamping:0.88 initialSpringVelocity:0.35 options:UIViewAnimationOptionCurveEaseOut
+                      animations:^{
+        overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.24];
+        sheet.transform = CGAffineTransformIdentity;
+    } completion:nil];
+    [textView scrollRangeToVisible:NSMakeRange(textView.text.length, 0)];
 }
 
 - (void)deleteSchemeCard:(UIButton *)sender {
@@ -957,6 +1225,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
         NSString *primary = scheme[@"primaryPath"];
         NSString *optional = scheme[@"optionalPath"];
+        [weakSelf invalidatePreviewCacheForSchemeID:scheme[@"id"]];
         if (primary.length) [NSFileManager.defaultManager removeItemAtPath:primary error:nil];
         if (optional.length && ![optional isEqualToString:primary]) [NSFileManager.defaultManager removeItemAtPath:optional error:nil];
         [weakSelf.fontSchemes removeObjectAtIndex:(NSUInteger)index];
@@ -1005,6 +1274,15 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     NSString *displayName = slot >= 2 ? self.optionalDisplayName : self.primaryDisplayName;
     [self.previewView setDisplayName:displayName ?: source.lastPathComponent.stringByDeletingPathExtension];
     NSString *kind = slot >= 2 ? @"optional" : @"primary";
+    NSString *cacheKey = [self previewCacheKeyForSchemeID:self.selectedSchemeID kind:kind source:source];
+    NSString *cached = self.schemePreviewCache[cacheKey];
+    if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
+        if (![self.previewView loadFontAtPath:cached]) {
+            [self.schemePreviewCache removeObjectForKey:cacheKey];
+        } else {
+            return;
+        }
+    }
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
         [NSString stringWithFormat:@"preview-%@.ttc", NSUUID.UUID.UUIDString]];
     BOOL directTTC = [source.pathExtension.lowercaseString isEqualToString:@"ttc"];
@@ -1018,6 +1296,13 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
             status = [self runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (status == 0 && [NSFileManager.defaultManager fileExistsAtPath:destination]) {
+                NSString *replaced = self.schemePreviewCache[cacheKey];
+                self.schemePreviewCache[cacheKey] = destination;
+                if (replaced.length && ![replaced isEqualToString:destination]) {
+                    [NSFileManager.defaultManager removeItemAtPath:replaced error:nil];
+                }
+            }
             if (generation != self.previewGeneration) return;
             if (status != 0 || ![self.previewView loadFontAtPath:destination]) {
                 self.statusLabel.text = @"字体已导入，但未能生成字体预览；不影响正常替换。";
@@ -1206,6 +1491,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
             } mutableCopy];
             [self.fontSchemes addObject:targetScheme];
         }
+        [self invalidatePreviewCacheForSchemeID:targetScheme[@"id"]];
         NSString *oldOptional = targetScheme[@"optionalPath"];
         if (oldOptional.length && ![oldOptional isEqualToString:destination]) {
             [NSFileManager.defaultManager removeItemAtPath:oldOptional error:nil];
