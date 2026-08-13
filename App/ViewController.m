@@ -187,15 +187,15 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     CGFloat scale = MAX(1.0, CGRectGetHeight(rect) / 118.0);
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
     UIColor *detailInk = [UIColor.secondaryLabelColor resolvedColorWithTraitCollection:self.traitCollection];
-    CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 13.0 * scale, NULL);
+    CTFontRef badge = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 12.0 * scale, NULL);
     CGFloat headlineSize = (_lockScreenPreview ? 43.0 : 34.0) * scale;
     CTFontRef headline = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, headlineSize, NULL, NULL)
                                       : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, headlineSize, NULL);
     CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0 * scale, NULL, NULL)
                                     : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0 * scale, NULL);
     CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0 * scale, NULL);
-    FCDrawPreviewLine(context, _lockScreenPreview ? @"锁屏字体预览" : @"实时预览",
-                      badge, ink, 20, 104 * scale, width - 40, 11 * scale);
+    FCDrawPreviewLine(context, _lockScreenPreview ? @"锁屏时钟自定义" : @"实时预览",
+                      badge, ink, 23, 102 * scale, width - 46, 10 * scale);
     if (_previewFont) {
         if (_lockScreenPreview) {
             FCDrawCenteredPreviewLine(context, @"0123456789", headline, ink, width * 0.5,
@@ -225,6 +225,17 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 - (BOOL)loadFontAtPath:(NSString *)path;
 @end
 
+static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
+    static NSCache<NSString *, id> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache = [[NSCache alloc] init];
+        cache.name = @"com.moxuan.fontchange.scheme-sample-fonts";
+        cache.countLimit = 48;
+    });
+    return cache;
+}
+
 @implementation FCFontSchemeSampleView {
     CTFontRef _sampleFont;
 }
@@ -237,6 +248,16 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     if (_sampleFont) {
         CFRelease(_sampleFont);
         _sampleFont = NULL;
+    }
+    if (!path.length) {
+        [self setNeedsDisplay];
+        return NO;
+    }
+    CTFontRef cachedFont = (__bridge CTFontRef)[FCSchemeSampleFontCache() objectForKey:path];
+    if (cachedFont) {
+        _sampleFont = CFRetain(cachedFont);
+        [self setNeedsDisplay];
+        return YES;
     }
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
@@ -267,6 +288,9 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         }
     }
     if (descriptors) CFRelease(descriptors);
+    if (_sampleFont) {
+        [FCSchemeSampleFontCache() setObject:(__bridge id)_sampleFont forKey:path];
+    }
     [self setNeedsDisplay];
     return _sampleFont != NULL;
 }
@@ -916,21 +940,22 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     if (self.primaryPath.length && self.optionalPath.length) {
         if (self.previewTransitioning) return;
         self.selectedPreviewSlot = self.selectedPreviewSlot == 2 ? 1 : 2;
-        BOOL showingLockScreen = self.selectedPreviewSlot == 2;
         self.previewTransitioning = YES;
         self.previewView.userInteractionEnabled = NO;
-        UIViewAnimationOptions direction = showingLockScreen
-            ? UIViewAnimationOptionTransitionFlipFromRight
-            : UIViewAnimationOptionTransitionFlipFromLeft;
         __weak typeof(self) weakSelf = self;
-        [UIView transitionWithView:self.previewView
-                          duration:0.42
-                           options:direction | UIViewAnimationOptionCurveEaseInOut
-                        animations:^{
-            [weakSelf refreshFontPreviewForSlot:weakSelf.selectedPreviewSlot];
+        [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionCurveEaseIn
+                         animations:^{
+            weakSelf.previewView.transform = CGAffineTransformMakeScale(0.025, 1.0);
         } completion:^(__unused BOOL finished) {
-            weakSelf.previewTransitioning = NO;
-            weakSelf.previewView.userInteractionEnabled = YES;
+            [weakSelf refreshFontPreviewForSlot:weakSelf.selectedPreviewSlot];
+            weakSelf.previewView.transform = CGAffineTransformMakeScale(-0.025, 1.0);
+            [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionCurveEaseOut
+                             animations:^{
+                weakSelf.previewView.transform = CGAffineTransformIdentity;
+            } completion:^(__unused BOOL expanded) {
+                weakSelf.previewTransitioning = NO;
+                weakSelf.previewView.userInteractionEnabled = YES;
+            }];
         }];
     } else {
         self.selectedPreviewSlot = self.primaryPath.length ? 1 : (self.optionalPath.length ? 2 : 0);
@@ -1004,8 +1029,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         BOOL hasGlobal = [scheme[@"primaryPath"] length] > 0;
         BOOL hasLock = [scheme[@"optionalPath"] length] > 0;
         BOOL selected = [scheme[@"id"] isEqualToString:self.selectedSchemeID];
-        card.detailLabel.text = hasGlobal && hasLock ? @"全局字体 + 自定义锁屏"
-            : (hasGlobal ? @"全局字体" : @"仅锁屏字体");
+        card.detailLabel.text = hasGlobal && hasLock ? @"全局字体 + 锁屏时钟自定义"
+            : (hasGlobal ? @"全局字体" : @"锁屏时钟自定义");
         card.tag = (NSInteger)index;
         card.deleteButton.tag = (NSInteger)index;
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
@@ -1245,8 +1270,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     BOOL hasCurrentScheme = [self selectedScheme] != nil;
     UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"导入字体"
         message:hasCurrentScheme
-            ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。"
-            : @"导入全局字体或建立一个仅锁屏字体方案。"
+            ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。"
+            : @"导入全局字体或建立一个仅锁屏字体方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。"
         preferredStyle:UIAlertControllerStyleActionSheet];
     [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体 ZIP" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self presentPickerForSlot:1];
