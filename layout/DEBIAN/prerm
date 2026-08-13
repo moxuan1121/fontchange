@@ -1,12 +1,18 @@
 #!/bin/sh
 set -e
 
-if [ -x /usr/libexec/fontchange-mount ]; then
-    /usr/libexec/fontchange-mount unmount >/dev/null 2>&1 || true
-fi
-
-if command -v uicache >/dev/null 2>&1; then
-    uicache -u /Applications/FontChange.app || true
-fi
+case "$1" in
+    remove|deconfigure)
+        if [ -x /usr/libexec/fontchange-mount ]; then
+            /usr/libexec/fontchange-mount unmount >/dev/null 2>&1 || true
+        fi
+        if command -v uicache >/dev/null 2>&1; then
+            uicache -u /Applications/FontChange.app || true
+        fi
+        ;;
+    upgrade|failed-upgrade)
+        # Keep the active font mount alive while dpkg replaces the package.
+        ;;
+esac
 
 exit 0

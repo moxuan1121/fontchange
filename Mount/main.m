@@ -196,6 +196,10 @@ int main(int argc, char *argv[]) {
         if ([command isEqualToString:@"status"]) return FCOwnMountIsActive() ? 0 : 1;
         if ([command isEqualToString:@"prepare"]) return FCPrepare();
         if ([command isEqualToString:@"mount"]) return FCMountSnapshot();
+        if ([command isEqualToString:@"mount-if-enabled"]) {
+            if (![NSFileManager.defaultManager fileExistsAtPath:FCEnabledPath()]) return 0;
+            return FCMountSnapshot();
+        }
         if ([command isEqualToString:@"unmount"]) return FCUnmountTarget();
         if ([command isEqualToString:@"reset"]) return FCReset();
         if ([command isEqualToString:@"daemon"]) return FCDaemon();
