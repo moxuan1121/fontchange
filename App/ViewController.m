@@ -387,11 +387,18 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 }
 
 - (NSString *)importsDirectory {
-    NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
-    return [documents stringByAppendingPathComponent:@"FontChangeImports"];
+    return [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/Application Support/FontChange/Imports")];
 }
 
 - (void)cleanupOldImports {
+    // Remove import caches created by older releases in the user-visible
+    // Documents directory. Applied system fonts and the native mirror live
+    // elsewhere and are not affected.
+    for (NSString *legacyName in @[@"FontChangeImports", @"FontChangeSelfContainedImports"]) {
+        NSString *legacyPath = [@"/var/mobile/Documents" stringByAppendingPathComponent:legacyName];
+        [NSFileManager.defaultManager removeItemAtPath:legacyPath error:nil];
+    }
     [NSFileManager.defaultManager removeItemAtPath:self.importsDirectory error:nil];
     [NSFileManager.defaultManager createDirectoryAtPath:self.importsDirectory withIntermediateDirectories:YES attributes:nil error:nil];
 }
