@@ -466,10 +466,20 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 - (void)detectMountMode {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         int status = [self runHelperArguments:@[@"--detect-mount"] wait:YES];
-        NSString *mode = status == 14 ? @"fontchange" : (status == 15 ? @"repair-needed" : @"uninitialized");
+        NSString *mode = status == 10 ? @"mnt" :
+            (status == 11 ? @"mount-bindfs" :
+            (status == 14 ? @"fontchange" : (status == 15 ? @"repair-needed" : @"uninitialized")));
         dispatch_async(dispatch_get_main_queue(), ^{
             self.mountMode = mode;
-            if ([mode isEqualToString:@"fontchange"]) {
+            if ([mode isEqualToString:@"mnt"]) {
+                self.mountLabel.text = @"● 外部挂载 · mnt（当前生效）";
+                self.mountLabel.textColor = UIColor.systemGreenColor;
+                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
+            } else if ([mode isEqualToString:@"mount-bindfs"]) {
+                self.mountLabel.text = @"● 外部挂载 · mount_bindfs（当前生效）";
+                self.mountLabel.textColor = UIColor.systemGreenColor;
+                self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];
+            } else if ([mode isEqualToString:@"fontchange"]) {
                 self.mountLabel.text = @"● 自带挂载 · 已启用";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
                 self.mountLabel.backgroundColor = [UIColor.systemGreenColor colorWithAlphaComponent:0.10];

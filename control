@@ -1,8 +1,8 @@
 Package: com.moxuan.fontchange
 Name: FontChange
-Version: 2.1.2
+Version: 2.1.3
 Architecture: iphoneos-arm64e
-Description: Imports ZIP/TTC fonts through FontChange's built-in RootHide mount, refreshes language caches, restores system fonts, and reboots userspace.
+Description: Reuses the active RootHide font mount when available, falls back to FontChange's built-in mount, refreshes language caches, restores system fonts, and reboots userspace.
 Maintainer: moxuan1121
 Author: moxuan1121
 Section: Utilities
