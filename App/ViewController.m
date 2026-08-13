@@ -651,6 +651,10 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.selectedSummaryButton = [self button:@"尚未选择字体方案" action:nil];
     self.selectedSummaryButton.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
     [self.selectedSummaryButton setTitleColor:UIColor.secondaryLabelColor forState:UIControlStateNormal];
+    UIButtonConfiguration *summaryConfiguration = [UIButtonConfiguration plainButtonConfiguration];
+    summaryConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(0, 12, 0, 12);
+    summaryConfiguration.baseForegroundColor = UIColor.secondaryLabelColor;
+    self.selectedSummaryButton.configuration = summaryConfiguration;
     self.selectedSummaryButton.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
     self.selectedSummaryButton.titleLabel.numberOfLines = 1;
     self.selectedSummaryButton.titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -659,7 +663,6 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     self.selectedSummaryButton.titleLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
     self.selectedSummaryButton.titleLabel.lineBreakMode = NSLineBreakByClipping;
     self.selectedSummaryButton.contentHorizontalAlignment = UIControlContentHorizontalAlignmentCenter;
-    self.selectedSummaryButton.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
     self.selectedSummaryButton.userInteractionEnabled = NO;
     self.selectedSummaryButton.clipsToBounds = YES;
     self.selectedSummaryButton.layer.shadowOpacity = 0;
