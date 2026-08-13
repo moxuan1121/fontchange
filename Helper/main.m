@@ -18,6 +18,11 @@ static NSString *systemFontMarkerPath(void) {
         jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.system-fonts")];
 }
 
+static NSString *nativeFontIndexPath(void) {
+    return [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.native-font-index.plist")];
+}
+
 static void setSystemFontMarker(BOOL original) {
     NSString *path = systemFontMarkerPath();
     if (original) {
@@ -175,23 +180,78 @@ static NSString *matchForCurrentIOS(NSArray<NSString *> *paths) {
     return versionMatches.count == 1 ? versionMatches.firstObject : nil;
 }
 
-static NSString *findPrimaryRoot(NSString *extracted, NSString **failure) {
-    NSMutableArray<NSString *> *candidates = [NSMutableArray arrayWithObject:extracted];
+static NSDictionary<NSString *, NSString *> *nativeFontIndex(NSString **failure) {
+    NSString *indexPath = nativeFontIndexPath();
+    NSString *currentVersion = NSProcessInfo.processInfo.operatingSystemVersionString;
+    NSDictionary *stored = [NSDictionary dictionaryWithContentsOfFile:indexPath];
+    NSDictionary *storedPaths = [stored[@"paths"] isKindOfClass:NSDictionary.class] ? stored[@"paths"] : nil;
+    if ([stored[@"schema"] integerValue] == 2 &&
+        [stored[@"osVersion"] isEqualToString:currentVersion] && storedPaths.count > 0) {
+        return storedPaths;
+    }
+
+    NSString *nativeRoot = @"/System/Library/Fonts";
+    BOOL rootDirectory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:nativeRoot isDirectory:&rootDirectory] || !rootDirectory) {
+        if (failure) *failure = @"无法读取 /System/Library/Fonts，不能建立原生字体索引。";
+        return nil;
+    }
+
+    NSMutableDictionary<NSString *, NSString *> *paths = [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *duplicates = [NSMutableArray array];
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:nativeRoot];
+    for (NSString *relative in enumerator) {
+        NSString *absolute = [nativeRoot stringByAppendingPathComponent:relative];
+        BOOL directory = NO;
+        if (![NSFileManager.defaultManager fileExistsAtPath:absolute isDirectory:&directory] || directory) continue;
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:absolute error:nil];
+        if (![attributes.fileType isEqualToString:NSFileTypeRegular]) continue;
+        NSString *key = relative.lastPathComponent.lowercaseString;
+        if (key.length == 0) continue;
+        if (paths[key] && ![paths[key] isEqualToString:relative]) {
+            [duplicates addObject:relative.lastPathComponent];
+            continue;
+        }
+        paths[key] = relative;
+    }
+    if (duplicates.count > 0) {
+        if (failure) *failure = [NSString stringWithFormat:
+            @"原生字体目录发现同名文件，已停止建立索引：%@。", [duplicates componentsJoinedByString:@"、"]];
+        return nil;
+    }
+    if (paths.count == 0) {
+        if (failure) *failure = @"原生字体目录为空，不能建立字体索引。";
+        return nil;
+    }
+
+    NSDictionary *payload = @{
+        @"schema": @2,
+        @"osVersion": currentVersion ?: @"unknown",
+        @"createdAt": @([[NSDate date] timeIntervalSince1970]),
+        @"paths": paths
+    };
+    NSError *directoryError = nil;
+    [NSFileManager.defaultManager createDirectoryAtPath:indexPath.stringByDeletingLastPathComponent
+                            withIntermediateDirectories:YES attributes:nil error:&directoryError];
+    if (directoryError || ![payload writeToFile:indexPath atomically:YES]) {
+        if (failure) *failure = [NSString stringWithFormat:@"无法保存原生字体索引：%@。",
+            directoryError.localizedDescription ?: @"写入失败"];
+        return nil;
+    }
+    chmod(indexPath.fileSystemRepresentation, 0644);
+    return paths;
+}
+
+static NSString *findFileNamed(NSString *extracted, NSString *fileName, NSString **failure) {
+    NSMutableArray<NSString *> *matches = [NSMutableArray array];
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
     for (NSString *relative in enumerator) {
-        NSString *path = [extracted stringByAppendingPathComponent:relative];
+        if ([relative.lastPathComponent caseInsensitiveCompare:fileName] != NSOrderedSame) continue;
+        NSString *absolute = [extracted stringByAppendingPathComponent:relative];
         BOOL directory = NO;
-        if ([NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] && directory) [candidates addObject:path];
-    }
-    NSMutableArray<NSString *> *matches = [NSMutableArray array];
-    for (NSString *path in candidates) {
-        BOOL valid = YES;
-        for (NSString *name in @[@"Core", @"CoreAddition", @"CoreUI"]) {
-            BOOL directory = NO;
-            valid &= [NSFileManager.defaultManager fileExistsAtPath:[path stringByAppendingPathComponent:name] isDirectory:&directory] && directory;
+        if ([NSFileManager.defaultManager fileExistsAtPath:absolute isDirectory:&directory] && !directory) {
+            [matches addObject:absolute];
         }
-        valid &= [NSFileManager.defaultManager fileExistsAtPath:[path stringByAppendingPathComponent:@"PingFang.ttc"]];
-        if (valid) [matches addObject:path];
     }
     if (matches.count > 1) {
         NSString *versionMatch = matchForCurrentIOS(matches);
@@ -199,34 +259,54 @@ static NSString *findPrimaryRoot(NSString *extracted, NSString **failure) {
     }
     if (matches.count != 1) {
         if (failure) *failure = matches.count == 0
-            ? @"主要 ZIP 中找不到同时包含 Core、CoreAddition、CoreUI 和 PingFang.ttc 的字体根目录。"
-            : [NSString stringWithFormat:@"主要 ZIP 中识别到多个字体根目录，但无法唯一匹配当前 iOS %ld。",
-                (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion];
+            ? [NSString stringWithFormat:@"ZIP 中找不到 %@。", fileName]
+            : [NSString stringWithFormat:@"ZIP 中存在多个 %@，但无法唯一匹配当前 iOS %ld。",
+                fileName, (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion];
         return nil;
     }
     return matches.firstObject;
 }
 
-static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
-    NSMutableArray<NSString *> *matches = [NSMutableArray array];
+static NSDictionary<NSString *, NSString *> *primarySourcesForIndex(
+    NSString *extracted, NSDictionary<NSString *, NSString *> *index, NSString **failure) {
+    NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *candidates = [NSMutableDictionary dictionary];
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
     for (NSString *relative in enumerator) {
-        if ([[relative stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] hasSuffix:@"CoreUI/SFUISoft.ttc"]) {
-            [matches addObject:[extracted stringByAppendingPathComponent:relative]];
+        NSString *absolute = [extracted stringByAppendingPathComponent:relative];
+        BOOL directory = NO;
+        if (![NSFileManager.defaultManager fileExistsAtPath:absolute isDirectory:&directory] || directory) continue;
+        NSString *key = relative.lastPathComponent.lowercaseString;
+        if (!index[key]) continue;
+        if (!candidates[key]) candidates[key] = [NSMutableArray array];
+        [candidates[key] addObject:absolute];
+    }
+
+    NSMutableDictionary<NSString *, NSString *> *selected = [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *ambiguous = [NSMutableArray array];
+    for (NSString *key in candidates) {
+        NSArray<NSString *> *paths = candidates[key];
+        if (paths.count == 1) {
+            selected[key] = paths.firstObject;
+            continue;
         }
+        NSString *versionMatch = matchForCurrentIOS(paths);
+        if (versionMatch) selected[key] = versionMatch;
+        else [ambiguous addObject:index[key].lastPathComponent ?: key];
     }
-    if (matches.count > 1) {
-        NSString *versionMatch = matchForCurrentIOS(matches);
-        if (versionMatch) return versionMatch;
-    }
-    if (matches.count != 1) {
-        if (failure) *failure = matches.count == 0
-            ? @"可选 100% ZIP 中找不到 CoreUI/SFUISoft.ttc。"
-            : [NSString stringWithFormat:@"可选 ZIP 中存在多个 SFUISoft.ttc，但无法唯一匹配当前 iOS %ld。",
-                (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion];
+    if (ambiguous.count > 0) {
+        if (failure) *failure = [NSString stringWithFormat:
+            @"字体包内存在无法匹配当前 iOS 版本的同名文件：%@。", [ambiguous componentsJoinedByString:@"、"]];
         return nil;
     }
-    return matches.firstObject;
+    if (selected.count == 0) {
+        if (failure) *failure = @"字体包内没有文件名与原生字体索引匹配。";
+        return nil;
+    }
+    return selected;
+}
+
+static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
+    return findFileNamed(extracted, @"SFUISoft.ttc", failure);
 }
 
 static int preparePreview(NSString *kind, NSString *zipPath, NSString *destination) {
@@ -245,8 +325,7 @@ static int preparePreview(NSString *kind, NSString *zipPath, NSString *destinati
     }
     NSString *source = nil;
     if ([kind isEqualToString:@"primary"]) {
-        NSString *root = findPrimaryRoot(work, &failure);
-        if (root) source = [root stringByAppendingPathComponent:@"PingFang.ttc"];
+        source = findFileNamed(work, @"PingFang.ttc", &failure);
     } else if ([kind isEqualToString:@"optional"]) {
         source = findOptionalSFUI(work, &failure);
     }
@@ -278,13 +357,6 @@ static NSString *validFontsTarget(NSString *relative) {
         return path;
     }
     return nil;
-}
-
-static BOOL mergeDirectory(NSString *source, NSString *destination, NSString **failure) {
-    NSString *cp = [NSString stringWithUTF8String:jbroot("/bin/cp")];
-    int status = runTool(cp, @[@"-Rf", [source stringByAppendingPathComponent:@"."], destination]);
-    if (status != 0 && failure) *failure = [NSString stringWithFormat:@"批量覆盖 %@ 失败（%d）。", source.lastPathComponent, status];
-    return status == 0;
 }
 
 static BOOL copyFile(NSString *source, NSString *destination, NSString **failure) {
@@ -488,7 +560,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *optionalExtract = [work stringByAppendingPathComponent:@"optional"];
 
     NSString *failure = nil;
-    NSString *primaryRoot = nil;
+    NSDictionary<NSString *, NSString *> *fontIndex = nil;
+    NSDictionary<NSString *, NSString *> *primarySources = nil;
     NSString *optionalSFUI = nil;
     NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
     NSString *target = nil;
@@ -502,7 +575,14 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *mountScheme = nil;
     NSString *mountSaveMarker = [NSString stringWithUTF8String:
         jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.mount-s.done")];
+    NSUInteger replacedFileCount = 0;
     NSError *directoryError = nil;
+
+    // Build this once from the real, read-only system font tree. Subsequent
+    // installs reuse it until the major iOS version changes.
+    fontIndex = nativeFontIndex(&failure);
+    if (!fontIndex) goto fail;
+
     if (!sfuiOnly) {
         if (![NSFileManager.defaultManager createDirectoryAtPath:primaryExtract
                                      withIntermediateDirectories:YES
@@ -513,8 +593,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             goto fail;
         }
         if (!extractArchive(primaryZip, primaryExtract, &failure)) goto fail;
-        primaryRoot = findPrimaryRoot(primaryExtract, &failure);
-        if (!primaryRoot) goto fail;
+        primarySources = primarySourcesForIndex(primaryExtract, fontIndex, &failure);
+        if (!primarySources) goto fail;
     }
 
     if (sfuiOnly && [optionalZip isEqualToString:@"-"]) {
@@ -669,11 +749,24 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     }
 
     if (!sfuiOnly) {
-        for (NSString *name in @[@"Core", @"CoreAddition", @"CoreUI"]) {
-            if (!mergeDirectory([primaryRoot stringByAppendingPathComponent:name], [target stringByAppendingPathComponent:name], &failure)) goto fail;
+        for (NSString *key in primarySources) {
+            NSString *relative = fontIndex[key];
+            NSString *source = primarySources[key];
+            if (relative.length == 0 || source.length == 0) {
+                failure = [NSString stringWithFormat:@"字体索引条目无效：%@。", key];
+                goto fail;
+            }
+            NSString *destination = [target stringByAppendingPathComponent:relative];
+            NSString *destinationParent = destination.stringByDeletingLastPathComponent;
+            BOOL destinationDirectory = NO;
+            if (![NSFileManager.defaultManager fileExistsAtPath:destinationParent
+                                                     isDirectory:&destinationDirectory] || !destinationDirectory) {
+                failure = [NSString stringWithFormat:@"目标字体目录不存在：%@。", relative.stringByDeletingLastPathComponent];
+                goto fail;
+            }
+            if (!copyFile(source, destination, &failure)) goto fail;
+            replacedFileCount++;
         }
-        if (!copyFile([primaryRoot stringByAppendingPathComponent:@"PingFang.ttc"],
-            [target stringByAppendingPathComponent:@"LanguageSupport/PingFang.ttc"], &failure)) goto fail;
     }
     if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
     // The mnt snapshot was already rebuilt from the original system fonts
@@ -688,7 +781,9 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     } else {
         mountScheme = @"mnt（未执行任何挂载指令）";
     }
-    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；检测 zqbb=%@；挂载方案=%@%@%@", target,
+    writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；原生索引=%lu 项；全局匹配覆盖=%lu 项；检测 zqbb=%@；挂载方案=%@%@%@", target,
+        (unsigned long)fontIndex.count,
+        (unsigned long)replacedFileCount,
         prefersMnt ? @"是（优先 mnt）" : @"否（优先 bindfs）",
         mountScheme,
         sfuiOnly ? @"；仅替换 SFUISoft.ttc" :
