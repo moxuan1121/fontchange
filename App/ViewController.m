@@ -353,9 +353,13 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 @property(nonatomic, strong) FCFontSchemeSampleView *sampleView;
 @property(nonatomic, strong) UILabel *nameLabel;
 @property(nonatomic, strong) UILabel *detailLabel;
+@property(nonatomic, strong) UILabel *usageBadge;
 @property(nonatomic, strong) UIButton *deleteButton;
+@property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
+@property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setSelectedAppearance:(BOOL)selected;
+- (void)setUsageAppearance:(BOOL)inUse;
 @end
 
 @implementation FCFontSchemeCard
@@ -392,6 +396,17 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     _detailLabel.textColor = UIColor.secondaryLabelColor;
     _detailLabel.numberOfLines = 1;
 
+    _usageBadge = [[UILabel alloc] init];
+    _usageBadge.translatesAutoresizingMaskIntoConstraints = NO;
+    _usageBadge.text = @"使用中";
+    _usageBadge.font = [UIFont systemFontOfSize:9 weight:UIFontWeightSemibold];
+    _usageBadge.textAlignment = NSTextAlignmentCenter;
+    _usageBadge.textColor = [UIColor colorWithRed:0.12 green:0.58 blue:0.34 alpha:1.0];
+    _usageBadge.backgroundColor = [UIColor colorWithRed:0.12 green:0.68 blue:0.38 alpha:0.11];
+    _usageBadge.layer.cornerRadius = 9;
+    _usageBadge.layer.masksToBounds = YES;
+    _usageBadge.hidden = YES;
+
     _deleteButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _deleteButton.translatesAutoresizingMaskIntoConstraints = NO;
     UIImageSymbolConfiguration *deleteSymbol = [UIImageSymbolConfiguration configurationWithPointSize:13
@@ -408,7 +423,11 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     [self addSubview:_sampleView];
     [self addSubview:_nameLabel];
     [self addSubview:_detailLabel];
+    [self addSubview:_usageBadge];
     [self addSubview:_deleteButton];
+    _detailToBadgeConstraint = [_detailLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_usageBadge.leadingAnchor constant:-6];
+    _detailToEdgeConstraint = [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12];
+    _detailToEdgeConstraint.active = YES;
     [NSLayoutConstraint activateConstraints:@[
         [_sampleView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_sampleView.trailingAnchor constraintEqualToAnchor:_deleteButton.leadingAnchor constant:-8],
@@ -422,9 +441,12 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
         [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:9],
         [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
-        [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
         [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:8],
         [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
+        [_usageBadge.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
+        [_usageBadge.centerYAnchor constraintEqualToAnchor:_detailLabel.centerYAnchor],
+        [_usageBadge.widthAnchor constraintEqualToConstant:42],
+        [_usageBadge.heightAnchor constraintEqualToConstant:18],
     ]];
     [self setSelectedAppearance:NO];
     return self;
@@ -468,6 +490,12 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         : [UIColor.secondaryLabelColor colorWithAlphaComponent:0.10]).CGColor;
 }
 
+- (void)setUsageAppearance:(BOOL)inUse {
+    self.detailToEdgeConstraint.active = !inUse;
+    self.detailToBadgeConstraint.active = inUse;
+    self.usageBadge.hidden = !inUse;
+}
+
 @end
 
 @interface FCLogLabel : UILabel
@@ -507,6 +535,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 @property(nonatomic, strong) NSMutableArray<NSMutableDictionary *> *fontSchemes;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *schemePreviewCache;
 @property(nonatomic, copy) NSString *selectedSchemeID;
+@property(nonatomic, copy) NSString *activeSchemeID;
 @property(nonatomic) NSInteger selectedPreviewSlot;
 @property(nonatomic, strong) UIView *processingCurtain;
 @property(nonatomic) NSUInteger previewGeneration;
@@ -519,6 +548,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 - (NSString *)previewCacheMetadataPath;
 - (void)savePreviewCacheMetadata;
 - (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated;
+- (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
 @end
 
 @implementation ViewController
@@ -530,6 +560,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     self.schemePreviewCache = [storedPreviewCache isKindOfClass:NSDictionary.class]
         ? [storedPreviewCache mutableCopy] : [NSMutableDictionary dictionary];
     self.logEntries = [NSMutableArray array];
+    self.activeSchemeID = [NSUserDefaults.standardUserDefaults stringForKey:@"FontChangeActiveSchemeID"];
     self.selectedPreviewSlot = 0;
     self.title = @"";
     self.view.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
@@ -983,6 +1014,19 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     self.selectedSummaryButton.enabled = YES;
 }
 
+- (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID {
+    self.activeSchemeID = [schemeID copy];
+    if (self.activeSchemeID.length) {
+        [NSUserDefaults.standardUserDefaults setObject:self.activeSchemeID forKey:@"FontChangeActiveSchemeID"];
+    } else {
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"FontChangeActiveSchemeID"];
+    }
+    for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
+        if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
+        [card setUsageAppearance:[card.schemeID isEqualToString:self.activeSchemeID]];
+    }
+}
+
 - (void)toggleSelectedPreview {
     if (![self selectedScheme]) return;
     if (self.primaryPath.length && self.optionalPath.length) {
@@ -1090,6 +1134,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
         [card.deleteButton addTarget:self action:@selector(deleteSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
         [card setSelectedAppearance:selected];
+        [card setUsageAppearance:[scheme[@"id"] isEqualToString:self.activeSchemeID]];
         [card.widthAnchor constraintEqualToConstant:150].active = YES;
         [self.schemeStackView addArrangedSubview:card];
         [self prepareSchemePreview:scheme forCard:card];
@@ -1118,6 +1163,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
         BOOL selected = [schemeCard.schemeID isEqualToString:self.selectedSchemeID];
         [schemeCard setSelectedAppearance:selected];
+        [schemeCard setUsageAppearance:[schemeCard.schemeID isEqualToString:self.activeSchemeID]];
     }
     [self scrollToSchemeIndex:card.schemeIndex animated:YES];
     self.statusLabel.text = [NSString stringWithFormat:@"已切换到“%@”；可直接预览或执行。",
@@ -1629,6 +1675,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 
 - (void)confirmRestoreSystemFonts {
     if ([self runHelperArguments:@[@"--system-font-state"] wait:YES] == 0) {
+        [self setActiveSchemeIDAndRefresh:nil];
         UIAlertController *alreadyOriginal = [UIAlertController
             alertControllerWithTitle:@"当前已经是系统字体"
                              message:@"上次恢复后尚未通过 FontChange 覆盖其他字体，无需重复恢复、切换语言或重启用户空间。"
@@ -1705,6 +1752,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     BOOL sfuiOnly = self.primaryPath.length == 0;
     NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
+    NSString *appliedSchemeID = [self.selectedSchemeID copy];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSArray<NSString *> *helperArguments = restoringSystemFonts
             ? @[@"--restore-system-fonts"] : @[@"--install", primary, optional];
@@ -1719,6 +1767,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
                 self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
                 return;
             }
+            [self setActiveSchemeIDAndRefresh:restoringSystemFonts ? nil : appliedSchemeID];
             self.statusLabel.text = restoringSystemFonts
                 ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存"
                 : sfuiOnly
