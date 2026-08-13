@@ -282,7 +282,6 @@ static NSDictionary<NSString *, NSString *> *primarySourcesForIndex(
     }
 
     NSMutableDictionary<NSString *, NSString *> *selected = [NSMutableDictionary dictionary];
-    NSMutableArray<NSString *> *ambiguous = [NSMutableArray array];
     for (NSString *key in candidates) {
         NSArray<NSString *> *paths = candidates[key];
         if (paths.count == 1) {
@@ -291,12 +290,9 @@ static NSDictionary<NSString *, NSString *> *primarySourcesForIndex(
         }
         NSString *versionMatch = matchForCurrentIOS(paths);
         if (versionMatch) selected[key] = versionMatch;
-        else [ambiguous addObject:index[key].lastPathComponent ?: key];
-    }
-    if (ambiguous.count > 0) {
-        if (failure) *failure = [NSString stringWithFormat:
-            @"字体包内存在无法匹配当前 iOS 版本的同名文件：%@。", [ambiguous componentsJoinedByString:@"、"]];
-        return nil;
+        // Multiple same-name candidates without one unambiguous current-iOS
+        // match are intentionally skipped. Other matched fonts can still be
+        // installed safely using the native filename index.
     }
     if (selected.count == 0) {
         if (failure) *failure = @"字体包内没有文件名与原生字体索引匹配。";

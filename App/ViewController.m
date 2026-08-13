@@ -190,6 +190,8 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 @property(nonatomic, strong) UIView *processingCurtain;
 @property(nonatomic) NSUInteger previewGeneration;
 @property(nonatomic) BOOL restoringSystemFonts;
+- (void)continueLanguageRefreshWithLanguage:(NSString *)language
+                          originalLanguages:(NSArray<NSString *> *)originalLanguages;
 @end
 
 @implementation ViewController
@@ -798,53 +800,70 @@ static NSString *const FCMountWarningSuppressedKey = @"FCMountWarningSuppressed"
             self.optionalLabel.text = @"跟随全局字体包 · 自动读取 SFUISoft.ttc";
             [self updateClearButtonState];
             self.statusLabel.text = restoringSystemFonts
-                ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存\n• 即将重启用户空间…"
+                ? @"运行日志\n✓ 系统原生字体已恢复\n• 等待确认刷新语言缓存"
                 : sfuiOnly
-                ? @"运行日志\n✓ SFUISoft 替换完成\n• 正在刷新语言缓存\n• 即将重启用户空间…"
-                : @"运行日志\n✓ 全局字体覆盖完成\n• 正在刷新语言缓存\n• 即将重启用户空间…";
-            NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
-            NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
-            if (![state writeToFile:statePath atomically:YES]) {
-                self.runButton.enabled = YES;
-                self.runButton.backgroundColor = UIColor.systemRedColor;
-                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
-                self.statusLabel.text = @"字体已覆盖，但无法保存原语言恢复状态；已停止后续操作。";
-                return;
-            }
-            NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
-            NSString *restoreMode = @"--restore-language-and-reboot";
-            int preflightStatus = [self runHelperArguments:@[@"--preflight", @"userspace"] wait:YES];
-            if (preflightStatus != 0) {
-                [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
-                self.runButton.enabled = YES;
-                self.runButton.backgroundColor = UIColor.systemRedColor;
-                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
-                self.statusLabel.text = [NSString stringWithFormat:
-                    @"后台语言恢复任务自检失败（%d），已停止切换。", preflightStatus];
-                return;
-            }
-            // Launch the guaranteed language recovery/userspace reboot task
-            // before iOS is asked to switch language. The language transition
-            // may suspend this app immediately, so spawning afterwards can
-            // leave the workflow half-finished.
-            int spawnStatus = [self runHelperArguments:@[restoreMode, statePath, @"8"] wait:NO];
-            if (spawnStatus != 0) {
-                [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
-                self.runButton.enabled = YES;
-                self.runButton.backgroundColor = UIColor.systemRedColor;
-                [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
-                self.statusLabel.text = [NSString stringWithFormat:
-                    @"后台语言恢复及用户空间重启任务启动失败（%d），已停止语言切换。", spawnStatus];
-                return;
-            }
-            [self showProcessingCurtain];
-            if ([self invokeNativeLanguage:language fallback:fallback]) {
-                self.statusLabel.text = @"正在清理字体缓存，即将重启用户空间。";
-            } else {
-                self.statusLabel.text = @"语言切换接口未响应；后台任务仍会恢复原语言并重启用户空间。";
-            }
+                ? @"运行日志\n✓ SFUISoft 替换完成\n• 等待确认刷新语言缓存"
+                : @"运行日志\n✓ 全局字体覆盖完成\n• 等待确认刷新语言缓存";
+
+            UIAlertController *refreshAlert = [UIAlertController
+                alertControllerWithTitle:@"字体替换已完成"
+                                 message:@"即将刷新系统字体缓存。继续后设备会进入锁屏并自动重启用户空间，请勿解锁或操作设备，等待流程自行完成。"
+                          preferredStyle:UIAlertControllerStyleAlert];
+            __weak typeof(self) weakSelf = self;
+            [refreshAlert addAction:[UIAlertAction actionWithTitle:@"继续刷新"
+                                                            style:UIAlertActionStyleDefault
+                                                          handler:^(__unused UIAlertAction *action) {
+                [weakSelf continueLanguageRefreshWithLanguage:language originalLanguages:originalLanguages];
+            }]];
+            [self presentViewController:refreshAlert animated:YES completion:nil];
         });
     });
+}
+
+- (void)continueLanguageRefreshWithLanguage:(NSString *)language
+                          originalLanguages:(NSArray<NSString *> *)originalLanguages {
+    NSString *statePath = @"/var/mobile/Documents/fontchange_language_state.plist";
+    NSDictionary *state = @{ @"Languages": originalLanguages, @"TemporaryLanguage": language };
+    if (![state writeToFile:statePath atomically:YES]) {
+        self.runButton.enabled = YES;
+        self.runButton.backgroundColor = UIColor.systemRedColor;
+        [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
+        self.statusLabel.text = @"字体已覆盖，但无法保存原语言恢复状态；已停止后续操作。";
+        return;
+    }
+
+    NSString *fallback = originalLanguages.firstObject ?: @"zh-Hans";
+    NSString *restoreMode = @"--restore-language-and-reboot";
+    int preflightStatus = [self runHelperArguments:@[@"--preflight", @"userspace"] wait:YES];
+    if (preflightStatus != 0) {
+        [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
+        self.runButton.enabled = YES;
+        self.runButton.backgroundColor = UIColor.systemRedColor;
+        [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
+        self.statusLabel.text = [NSString stringWithFormat:
+            @"后台语言恢复任务自检失败（%d），已停止切换。", preflightStatus];
+        return;
+    }
+
+    // Start recovery before invoking the native language transition because
+    // iOS may suspend this app as soon as the transition begins.
+    int spawnStatus = [self runHelperArguments:@[restoreMode, statePath, @"8"] wait:NO];
+    if (spawnStatus != 0) {
+        [NSFileManager.defaultManager removeItemAtPath:statePath error:nil];
+        self.runButton.enabled = YES;
+        self.runButton.backgroundColor = UIColor.systemRedColor;
+        [self.runButton setTitle:@"执行失败，点击重试" forState:UIControlStateNormal];
+        self.statusLabel.text = [NSString stringWithFormat:
+            @"后台语言恢复及用户空间重启任务启动失败（%d），已停止语言切换。", spawnStatus];
+        return;
+    }
+
+    [self showProcessingCurtain];
+    if ([self invokeNativeLanguage:language fallback:fallback]) {
+        self.statusLabel.text = @"正在清理字体缓存，即将重启用户空间。";
+    } else {
+        self.statusLabel.text = @"语言切换接口未响应；后台任务仍会恢复原语言并重启用户空间。";
+    }
 }
 
 - (int)runHelperArguments:(NSArray<NSString *> *)arguments wait:(BOOL)wait {
