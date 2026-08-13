@@ -99,7 +99,7 @@ static int FCMountSnapshot(void) {
     if (unmountStatus != 0) return unmountStatus;
     return FCWithKernelCredentials(^int{
         return mount("bindfs", "/System/Library/Fonts", MNT_RDONLY,
-            FCSourcePath().fileSystemRepresentation) == 0 ? 0 : errno;
+            (void *)FCSourcePath().fileSystemRepresentation) == 0 ? 0 : errno;
     });
 }
 
