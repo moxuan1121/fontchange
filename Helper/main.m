@@ -456,14 +456,101 @@ static NSString *mountedFontsTarget(NSString **scheme) {
     return target;
 }
 
+static NSString *rebuildExternalFontsTarget(NSString *activeTarget, NSString *activeScheme,
+                                             NSString **scheme, NSString **failure) {
+    if ([activeScheme hasPrefix:@"mnt"]) {
+        NSString *lowerTarget = activeTarget.lowercaseString;
+        if (![lowerTarget containsString:@"/mnt/system/library/fonts"] ||
+            [activeTarget isEqualToString:@"/System/Library/Fonts"]) {
+            if (failure) *failure = @"当前 mnt 字体快照路径校验失败，已停止操作。";
+            return nil;
+        }
+
+        NSString *jbctl = [NSString stringWithUTF8String:jbroot("/basebin/jbctl")];
+        if (![NSFileManager.defaultManager isExecutableFileAtPath:jbctl]) {
+            if (failure) *failure = @"当前为 mnt 挂载，但未找到 jbctl，无法重建原生字体快照。";
+            return nil;
+        }
+
+        int fontUnmount = runTool(jbctl, @[@"internal", @"font_unmount"]);
+        int pathUnmount = runTool(jbctl, @[@"internal", @"unmount", @"/System/Library/Fonts"]);
+        NSString *umount = @"/sbin/umount";
+        if (![NSFileManager.defaultManager isExecutableFileAtPath:umount]) {
+            umount = [NSString stringWithUTF8String:jbroot("/sbin/umount")];
+        }
+        int directUnmount = [NSFileManager.defaultManager isExecutableFileAtPath:umount]
+            ? runTool(umount, @[@"-f", @"/System/Library/Fonts"]) : 127;
+        usleep(400000);
+
+        NSString *rm = [NSString stringWithUTF8String:jbroot("/bin/rm")];
+        int removeStatus = runTool(rm, @[@"-rf", @"--", activeTarget]);
+        if ([NSFileManager.defaultManager fileExistsAtPath:activeTarget]) {
+            if (failure) *failure = [NSString stringWithFormat:
+                @"mnt 原字体快照仍被占用，无法重建。font_unmount=%d，path_unmount=%d，umount=%d，rm=%d。",
+                fontUnmount, pathUnmount, directUnmount, removeStatus];
+            return nil;
+        }
+
+        int mountStatus = runTool(jbctl, @[@"internal", @"font_mount"]);
+        NSString *rebuiltScheme = nil;
+        NSString *rebuiltTarget = nil;
+        for (NSUInteger attempt = 0; attempt < 25; attempt++) {
+            rebuiltTarget = mountedFontsTarget(&rebuiltScheme);
+            if (rebuiltTarget && [rebuiltScheme hasPrefix:@"mnt"]) break;
+            usleep(300000);
+        }
+        if (!rebuiltTarget) {
+            mountStatus = runTool(jbctl, @[@"internal", @"mount", @"/System/Library/Fonts"]);
+            for (NSUInteger attempt = 0; attempt < 25; attempt++) {
+                rebuiltTarget = mountedFontsTarget(&rebuiltScheme);
+                if (rebuiltTarget && [rebuiltScheme hasPrefix:@"mnt"]) break;
+                usleep(300000);
+            }
+        }
+        if (!rebuiltTarget || ![rebuiltScheme hasPrefix:@"mnt"]) {
+            if (failure) *failure = [NSString stringWithFormat:@"mnt 原生字体快照重建失败（%d）。", mountStatus];
+            return nil;
+        }
+        if (scheme) *scheme = @"mnt（已重建完整原生字体快照）";
+        return rebuiltTarget;
+    }
+
+    if ([activeScheme hasPrefix:@"mount_bindfs"]) {
+        NSString *mountBindfs = [NSString stringWithUTF8String:jbroot("/usr/bin/mount_bindfs")];
+        if (![NSFileManager.defaultManager isExecutableFileAtPath:mountBindfs]) {
+            if (failure) *failure = @"当前为 mount_bindfs 挂载，但未找到 mount_bindfs。";
+            return nil;
+        }
+        int copyStatus = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
+        NSString *rebuiltScheme = nil;
+        NSString *rebuiltTarget = mountedFontsTarget(&rebuiltScheme);
+        if (copyStatus != 0 || !rebuiltTarget || ![rebuiltScheme hasPrefix:@"mount_bindfs"]) {
+            if (failure) *failure = [NSString stringWithFormat:@"mount_bindfs 原生字体复制失败（%d）。", copyStatus];
+            return nil;
+        }
+        if (scheme) *scheme = @"mount_bindfs（已重新复制完整原生字体）";
+        return rebuiltTarget;
+    }
+
+    if (scheme) *scheme = activeScheme;
+    return activeTarget;
+}
+
 static NSString *preferredFontsTarget(BOOL sfuiOnly, NSString **scheme, NSString **failure) {
-    (void)sfuiOnly;
     NSString *target = nil;
+    NSString *activeScheme = nil;
 
     // The live mount table is authoritative. A stale mnt/bindfs directory
     // must never decide where new fonts are written.
-    target = mountedFontsTarget(scheme);
-    if (target) return target;
+    target = mountedFontsTarget(&activeScheme);
+    if (target) {
+        if (!sfuiOnly && ([activeScheme hasPrefix:@"mnt"] ||
+                          [activeScheme hasPrefix:@"mount_bindfs"])) {
+            return rebuildExternalFontsTarget(target, activeScheme, scheme, failure);
+        }
+        if (scheme) *scheme = activeScheme;
+        return target;
+    }
 
     NSString *ownedTool = fontChangeMountTool();
     if ([NSFileManager.defaultManager isExecutableFileAtPath:ownedTool]) {
