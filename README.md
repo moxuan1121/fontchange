@@ -4,6 +4,8 @@ FontChange 是一款面向 iOS 15 越狱设备的字体管理工具。它把字�
 （iOS16，iOS17没做适配，全局可用，锁屏字体自定义未做适配）
 全局系统字体与锁屏时钟字体被集中在同一个直观界面中，字体导入、组合、预览、替换和恢复都能在 App 内完成。
 
+##已知问题：iOS16以上使用锁屏自定义/全局+锁屏自定义崩溃终止替换进程
+
 ## 开源致谢
 
 感谢 [lunaynx/mount-bindfs-dopamine](https://github.com/lunaynx/mount-bindfs-dopamine) 提供 Dopamine 环境下的 `bindfs` 挂载工具。
