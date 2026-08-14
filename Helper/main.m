@@ -19,6 +19,18 @@ extern char **environ;
 
 static NSString *const FCReportPath = @"/var/mobile/Documents/fontchange_last_result.txt";
 
+static BOOL supportedImportExtension(NSString *extension) {
+    static NSSet<NSString *> *extensions;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        extensions = [NSSet setWithArray:@[
+            @"zip", @"zipx", @"rar", @"7z", @"tar", @"tgz", @"gz", @"tbz", @"tbz2",
+            @"bz2", @"txz", @"xz", @"tzst", @"zst", @"lha", @"lzh", @"cab", @"ttc"
+        ]];
+    });
+    return [extensions containsObject:extension.lowercaseString];
+}
+
 static NSString *systemFontMarkerPath(void) {
     return [NSString stringWithUTF8String:
         jbroot("/var/mobile/Library/Preferences/com.moxuan.fontchange.system-fonts")];
@@ -104,61 +116,41 @@ static BOOL unsafeArchiveEntry(NSString *entry) {
     return NO;
 }
 
-static BOOL validateArchive(NSString *zipPath, NSString **failure) {
-    NSString *unzip = [NSString stringWithUTF8String:jbroot("/usr/bin/unzip")];
-    int descriptors[2] = {-1, -1};
-    if (pipe(descriptors) != 0) {
-        if (failure) *failure = @"无法创建 ZIP 检查管道。";
+static BOOL validateArchive(NSString *archivePath, NSString **failure) {
+    NSString *bsdtar = [NSString stringWithUTF8String:jbroot("/usr/bin/bsdtar")];
+    if (![NSFileManager.defaultManager isExecutableFileAtPath:bsdtar]) {
+        if (failure) *failure = @"未找到 bsdtar，请安装或重新安装 libarchive-tools。";
         return NO;
     }
-    char *argv[] = {strdup(unzip.UTF8String), strdup("-Z1"), strdup(zipPath.UTF8String), NULL};
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_adddup2(&actions, descriptors[1], STDOUT_FILENO);
-    posix_spawn_file_actions_addclose(&actions, descriptors[0]);
-    posix_spawn_file_actions_addclose(&actions, descriptors[1]);
-    pid_t pid = 0;
-    int spawnStatus = posix_spawn(&pid, unzip.UTF8String, &actions, NULL, argv, environ);
-    free(argv[0]);
-    free(argv[1]);
-    free(argv[2]);
-    posix_spawn_file_actions_destroy(&actions);
-    close(descriptors[1]);
-    if (spawnStatus != 0) {
-        close(descriptors[0]);
-        if (failure) *failure = @"未找到 unzip，请先通过软件源安装 unzip。";
+    NSString *listing = nil;
+    int status = runToolCapturingOutput(bsdtar, @[@"-tf", archivePath], &listing);
+    if (status != 0) {
+        if (failure) *failure = [NSString stringWithFormat:@"压缩包无法读取、已经损坏或使用了不支持的加密方式（%d）：%@",
+            status, listing.length ? listing : @"bsdtar 没有返回错误详情"];
         return NO;
     }
-    NSFileHandle *readHandle = [[NSFileHandle alloc] initWithFileDescriptor:descriptors[0] closeOnDealloc:YES];
-    NSData *output = [readHandle readDataToEndOfFile];
-    int processStatus = 0;
-    waitpid(pid, &processStatus, 0);
-    if (!WIFEXITED(processStatus) || WEXITSTATUS(processStatus) != 0) {
-        if (failure) *failure = @"ZIP 无法读取或已经损坏。";
-        return NO;
-    }
-    NSString *listing = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
     if (listing.length == 0) {
-        if (failure) *failure = @"ZIP 内容为空。";
+        if (failure) *failure = @"压缩包内容为空。";
         return NO;
     }
     for (NSString *entry in [listing componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
         if (entry.length && unsafeArchiveEntry(entry)) {
-            if (failure) *failure = [NSString stringWithFormat:@"ZIP 包含不安全路径：%@", entry];
+            if (failure) *failure = [NSString stringWithFormat:@"压缩包包含不安全路径：%@", entry];
             return NO;
         }
     }
     return YES;
 }
 
-static BOOL extractArchive(NSString *zipPath, NSString *destination, NSString **failure) {
-    if (!validateArchive(zipPath, failure)) return NO;
-    NSString *unzip = [NSString stringWithUTF8String:jbroot("/usr/bin/unzip")];
+static BOOL extractArchive(NSString *archivePath, NSString *destination, NSString **failure) {
+    if (!validateArchive(archivePath, failure)) return NO;
+    NSString *bsdtar = [NSString stringWithUTF8String:jbroot("/usr/bin/bsdtar")];
     NSString *details = nil;
-    int status = runToolCapturingOutput(unzip, @[@"-o", zipPath, @"-d", destination], &details);
+    int status = runToolCapturingOutput(bsdtar,
+        @[@"-xf", archivePath, @"-C", destination, @"--no-same-owner", @"--no-same-permissions"], &details);
     if (status != 0) {
         if (failure) *failure = [NSString stringWithFormat:@"解压失败（%d）：%@", status,
-            details.length ? details : @"unzip 没有返回错误详情"];
+            details.length ? details : @"bsdtar 没有返回错误详情"];
         return NO;
     }
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:destination];
@@ -166,7 +158,7 @@ static BOOL extractArchive(NSString *zipPath, NSString *destination, NSString **
         NSString *path = [destination stringByAppendingPathComponent:relative];
         NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
         if ([attributes.fileType isEqualToString:NSFileTypeSymbolicLink]) {
-            if (failure) *failure = [NSString stringWithFormat:@"ZIP 包含符号链接：%@", relative];
+            if (failure) *failure = [NSString stringWithFormat:@"压缩包包含符号链接：%@", relative];
             return NO;
         }
     }
@@ -295,8 +287,8 @@ static NSString *findFileNamed(NSString *extracted, NSString *fileName, NSString
     }
     if (matches.count != 1) {
         if (failure) *failure = matches.count == 0
-            ? [NSString stringWithFormat:@"ZIP 中找不到 %@。", fileName]
-            : [NSString stringWithFormat:@"ZIP 中存在多个 %@，但无法唯一匹配当前 iOS %ld。",
+            ? [NSString stringWithFormat:@"压缩包中找不到 %@。", fileName]
+            : [NSString stringWithFormat:@"压缩包中存在多个 %@，但无法唯一匹配当前 iOS %ld。",
                 fileName, (long)NSProcessInfo.processInfo.operatingSystemVersion.majorVersion];
         return nil;
     }
@@ -892,7 +884,7 @@ int main(int argc, char *argv[]) {
             NSString *source = [NSString stringWithUTF8String:argv[2]];
             NSString *destination = [NSString stringWithUTF8String:argv[3]];
             NSString *extension = source.pathExtension.lowercaseString;
-            if (![extension isEqualToString:@"zip"] && ![extension isEqualToString:@"ttc"]) return 65;
+            if (!supportedImportExtension(extension)) return 65;
             NSString *parent = destination.stringByDeletingLastPathComponent;
             [NSFileManager.defaultManager createDirectoryAtPath:parent
                                     withIntermediateDirectories:YES
