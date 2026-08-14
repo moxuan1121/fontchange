@@ -13,7 +13,8 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 - **多套字体方案管理**：保存多套字体组合，横向浏览并快速切换；“使用中”标识只显示设备当前实际应用的方案。
 - **快速而稳定的预览缓存**：字体解析结果和预览文件会复用，相同任务自动合并，并按七天周期刷新，减少重复解压与等待。
 - **支持 ZIP 与 TTC**：全局字体支持 ZIP 字体包，锁屏时钟支持 ZIP 或 TTC 文件；也可以从其他 App 通过系统分享菜单导入。
-- **RootHide 与标准 rootless 双支持**：同时提供 Dopamine RootHide 包和标准 Dopamine rootless 包。
+- **RootHide 与真·无根 Dopamine 双支持**：同时提供 Dopamine RootHide 包和标准 rootless（真·无根）Dopamine 包。
+- **兼容赵楠 `mount_bindfs` 挂载**：自动检测并复用设备上已有的 `mount_bindfs` 字体挂载；没有可用的外部挂载时，再回退到 FontChange 自带挂载方案。
 - **一键恢复系统字体**：随时解除字体挂载并恢复 iOS 原生字体，同时完成语言缓存刷新与用户空间重启。
 - **执行过程可追踪**：现代化底部日志面板记录操作日期和时刻，支持复制与清理。
 
@@ -31,7 +32,8 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 
 - iOS 15.0 或更高版本
 - Dopamine RootHide：`iphoneos-arm64e`
-- 标准 Dopamine rootless：`iphoneos-arm64`
+- 标准 rootless（真·无根）Dopamine：`iphoneos-arm64`
+- 赵楠 `mount_bindfs` 外部字体挂载方案
 - 当前版本：`1.0`
 
 两个安装包使用相同的包标识 `com.moxuan.fontchange`。请选择与你当前越狱环境对应的版本，不要交叉安装。
@@ -57,7 +59,7 @@ make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 ## 安装包
 
 - RootHide：`com.moxuan.fontchange_1.0_iphoneos-arm64e.deb`
-- 标准 rootless：`com.moxuan.fontchange_1.0_iphoneos-arm64.deb`
+- 标准 rootless（真·无根 Dopamine）：`com.moxuan.fontchange_1.0_iphoneos-arm64.deb`
 
 通过 Sileo、Zebra 或其他兼容的包管理器安装。首次真机测试前，建议保留可用的系统恢复方式，并确认重要数据已经保存。
 
