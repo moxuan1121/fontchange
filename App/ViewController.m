@@ -63,8 +63,6 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
         [self setNeedsDisplay];
         return YES;
     }
-    CFIndex bestCoverage = -1;
-    const CFIndex requiredCoverage = 2;
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         // A lock-screen font may intentionally contain only numerals. Select
@@ -311,6 +309,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self setNeedsDisplay];
         return YES;
     }
+    CFIndex bestCoverage = -1;
+    const CFIndex requiredCoverage = 2;
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         NSString *probe = @"Aa";
@@ -318,7 +318,6 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         UniChar characters[8] = {0};
         CGGlyph glyphs[8] = {0};
         [probe getCharacters:characters range:NSMakeRange(0, length)];
-        CFIndex bestCoverage = -1;
         for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
             CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 56.0, NULL);
