@@ -6,7 +6,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 
 ## 开源致谢
 
-感谢 [lunaynx/mount-bindfs-dopamine](https://github.com/lunaynx/mount-bindfs-dopamine) 提供 Dopamine 环境下的 `bindfs` 挂载工具。FontChange 可检测并复用该项目提供的 `mount_bindfs`，共同实现更灵活的字体挂载。
+感谢 [lunaynx/mount-bindfs-dopamine](https://github.com/lunaynx/mount-bindfs-dopamine) 提供 Dopamine 环境下的 `bindfs` 挂载工具。
 
 同时感谢 [RootHide](https://github.com/roothide) 与 [Theos](https://github.com/theos/theos) 社区提供的运行环境和开发工具。FontChange 与上述项目均为独立项目；相关名称及版权归各自项目所有。
 
