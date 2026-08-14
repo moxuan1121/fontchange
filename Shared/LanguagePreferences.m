@@ -1,12 +1,20 @@
 #import "LanguagePreferences.h"
 
 #import <CoreFoundation/CoreFoundation.h>
+#if FONTCHANGE_ROOTLESS
+#import <rootless.h>
+#else
 #import <roothide.h>
+#endif
 
 static NSString *const FCErrorDomain = @"FontChange";
 
 NSString *FCStatePath(void) {
-    return jbroot(@"/var/mobile/Library/Preferences/com.moxuan1121.fontchange.restore-pending.plist");
+#if FONTCHANGE_ROOTLESS
+    return ROOT_PATH_NS(@"/var/mobile/Library/Preferences/com.moxuan.fontchange.restore-pending.plist");
+#else
+    return jbroot(@"/var/mobile/Library/Preferences/com.moxuan.fontchange.restore-pending.plist");
+#endif
 }
 
 static NSError *FCError(NSInteger code, NSString *message) {

@@ -1,9 +1,9 @@
-Package: com.moxuan1121.fontchange
-Name: Font Language Refresh
-Version: 1.0.2
+Package: com.moxuan.fontchange
+Name: FontChange
+Version: 1.0
 Architecture: iphoneos-arm64e
-Description: One-tap two-stage language refresh for rebuilding iOS font caches on Dopamine RootHide.
+Description: Manages custom system and lock-screen fonts on supported iOS 15+ jailbreak environments, refreshes language caches, restores system fonts, and reboots userspace.
 Maintainer: moxuan1121
 Author: moxuan1121
 Section: Utilities
-Depends: firmware (>= 15.0)
+Depends: firmware (>= 15.0), libarchive-tools

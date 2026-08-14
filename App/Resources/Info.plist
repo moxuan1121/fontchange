@@ -3,11 +3,92 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>字体缓存刷新</string>
+    <string>FontChange</string>
     <key>CFBundleExecutable</key>
     <string>FontChange</string>
     <key>CFBundleIdentifier</key>
-    <string>com.moxuan1121.fontchange</string>
+    <string>com.moxuan.fontchange</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Font Archive Package</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.moxuan.fontchange.font-archive</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>TrueType Collection Font</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.moxuan.fontchange.ttc</string>
+            </array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.moxuan.fontchange.font-archive</string>
+            <key>UTTypeDescription</key>
+            <string>Font Archive Package</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.archive</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>zip</string>
+                    <string>zipx</string>
+                    <string>rar</string>
+                    <string>7z</string>
+                    <string>tar</string>
+                    <string>tgz</string>
+                    <string>gz</string>
+                    <string>tbz</string>
+                    <string>tbz2</string>
+                    <string>bz2</string>
+                    <string>txz</string>
+                    <string>xz</string>
+                    <string>tzst</string>
+                    <string>zst</string>
+                    <string>lha</string>
+                    <string>lzh</string>
+                    <string>cab</string>
+                </array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.moxuan.fontchange.ttc</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.font</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>ttc</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>font/collection</string>
+            </dict>
+        </dict>
+    </array>
     <key>CFBundleIcons</key>
     <dict>
         <key>CFBundlePrimaryIcon</key>
@@ -27,10 +108,12 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.2</string>
+    <string>1.0</string>
     <key>CFBundleVersion</key>
-    <string>3</string>
+    <string>67</string>
     <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
     <key>MinimumOSVersion</key>
     <string>15.0</string>

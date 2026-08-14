@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.moxuan1121.fontchange.restore</string>
+    <string>com.moxuan.fontchange.mount</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/libexec/fontchange-helper</string>
-        <string>--resume</string>
+        <string>/var/jb/usr/libexec/fontchange-mount</string>
+        <string>daemon</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -15,4 +15,3 @@
     <string>Interactive</string>
 </dict>
 </plist>
-
