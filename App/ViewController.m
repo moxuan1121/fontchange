@@ -647,12 +647,15 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)appendLogEntry:(NSString *)text;
 - (NSString *)formattedLogText;
 - (NSString *)previewCacheMetadataPath;
+- (NSString *)previewFilesDirectory;
 - (void)savePreviewCacheMetadata;
 - (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated;
 - (NSInteger)schemePageCount;
 - (void)updateSchemePageControlForOffset:(CGFloat)offset;
 - (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
 - (void)migratePersistentStorageIfNeeded;
+- (NSString *)resolvedPersistentImportPath:(NSString *)storedPath;
+- (BOOL)isUsablePersistentFile:(NSString *)path;
 - (void)requestPreviewForSchemeID:(NSString *)schemeID
                              kind:(NSString *)kind
                            source:(NSString *)source
@@ -1020,7 +1023,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         for (NSString *name in [manager contentsOfDirectoryAtPath:legacyImports error:nil] ?: @[]) {
             NSString *source = [legacyImports stringByAppendingPathComponent:name];
             NSString *destination = [stableImports stringByAppendingPathComponent:name];
-            if (![manager fileExistsAtPath:destination]) [manager copyItemAtPath:source toPath:destination error:nil];
+            if (![self isUsablePersistentFile:destination] && [self isUsablePersistentFile:source]) {
+                [manager removeItemAtPath:destination error:nil];
+                if ([manager copyItemAtPath:source toPath:destination error:nil]) {
+                    [manager setAttributes:@{NSFilePosixPermissions: @0644} ofItemAtPath:destination error:nil];
+                }
+            }
         }
         for (NSString *name in @[@"Schemes.plist", @"PreviewCache.plist"]) {
             NSString *source = [legacyBase stringByAppendingPathComponent:name];
@@ -1042,9 +1050,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         NSMutableDictionary *scheme = item.mutableCopy;
         for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
             NSString *oldPath = scheme[key];
-            if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+            if (!oldPath.length) continue;
             NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
-            if ([manager fileExistsAtPath:candidate]) {
+            if ([self isUsablePersistentFile:candidate] && ![oldPath isEqualToString:candidate]) {
                 scheme[key] = candidate;
                 schemesChanged = YES;
             }
@@ -1058,14 +1066,28 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     BOOL cacheChanged = NO;
     for (NSString *key in cache.allKeys.copy) {
         NSString *oldPath = cache[key];
-        if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+        if (!oldPath.length) continue;
         NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
-        if ([manager fileExistsAtPath:candidate]) {
+        if ([self isUsablePersistentFile:candidate] && ![oldPath isEqualToString:candidate]) {
             cache[key] = candidate;
             cacheChanged = YES;
         }
     }
     if (cacheChanged) [cache writeToFile:metadata atomically:YES];
+}
+
+- (NSString *)resolvedPersistentImportPath:(NSString *)storedPath {
+    if (!storedPath.length) return nil;
+    NSString *stable = [self.importsDirectory stringByAppendingPathComponent:storedPath.lastPathComponent];
+    if ([self isUsablePersistentFile:stable]) return stable;
+    return [self isUsablePersistentFile:storedPath] ? storedPath : nil;
+}
+
+- (BOOL)isUsablePersistentFile:(NSString *)path {
+    if (!path.length || ![NSFileManager.defaultManager isReadableFileAtPath:path]) return NO;
+    NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    return [attributes[NSFileType] isEqualToString:NSFileTypeRegular] &&
+        [attributes[NSFileSize] unsignedLongLongValue] > 0;
 }
 
 - (NSString *)schemesPath {
@@ -1075,6 +1097,13 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (NSString *)previewCacheMetadataPath {
     return [[self.importsDirectory stringByDeletingLastPathComponent]
         stringByAppendingPathComponent:@"PreviewCache.plist"];
+}
+
+- (NSString *)previewFilesDirectory {
+    // Generated previews are disposable and must be visible to both the app
+    // and the privileged helper inside the active jailbreak root.
+    return [NSString stringWithUTF8String:
+        jbroot("/var/mobile/Library/Caches/FontChange/Previews")];
 }
 
 - (void)savePreviewCacheMetadata {
@@ -1093,6 +1122,23 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [NSFileManager.defaultManager removeItemAtPath:legacyPath error:nil];
     }
     [NSFileManager.defaultManager createDirectoryAtPath:self.importsDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    [NSFileManager.defaultManager createDirectoryAtPath:self.previewFilesDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    // 1.1 briefly stored generated previews beside persistent imports. They
+    // are disposable and use a reserved prefix that imported source files do
+    // not use, so remove every migration leftover from the durable directory.
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
+        if ([name hasPrefix:@"preview-"] && [name.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
+            NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
+            FCEvictPreviewFontAtPath(path);
+            [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        }
+    }
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.previewFilesDirectory error:nil] ?: @[]) {
+        if ([name hasPrefix:@"source-"] || [name hasPrefix:@"install-"] || [name hasPrefix:@"import-"]) {
+            [NSFileManager.defaultManager removeItemAtPath:
+                [self.previewFilesDirectory stringByAppendingPathComponent:name] error:nil];
+        }
+    }
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
     NSDate *lastRefresh = [defaults objectForKey:@"FontChangePreviewCacheLastRefresh"];
     NSTimeInterval sevenDays = 7.0 * 24.0 * 60.0 * 60.0;
@@ -1106,16 +1152,21 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         NSMutableSet<NSString *> *referencedPaths = [NSMutableSet set];
         for (NSString *key in self.schemePreviewCache.allKeys.copy) {
             NSString *path = self.schemePreviewCache[key];
-            if (path.length && [NSFileManager.defaultManager fileExistsAtPath:path]) {
+            BOOL currentCachePath = [path hasPrefix:[self.previewFilesDirectory stringByAppendingString:@"/"]];
+            if (currentCachePath && [NSFileManager.defaultManager fileExistsAtPath:path]) {
                 [referencedPaths addObject:path];
             } else {
                 [self.schemePreviewCache removeObjectForKey:key];
+                if ([path.lastPathComponent hasPrefix:@"preview-"]) {
+                    FCEvictPreviewFontAtPath(path);
+                    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+                }
                 metadataChanged = YES;
             }
         }
-        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.previewFilesDirectory error:nil] ?: @[]) {
             if (![name hasPrefix:@"preview-"] || ![name.pathExtension.lowercaseString isEqualToString:@"ttc"]) continue;
-            NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
+            NSString *path = [self.previewFilesDirectory stringByAppendingPathComponent:name];
             if (![referencedPaths containsObject:path]) {
                 FCEvictPreviewFontAtPath(path);
                 [NSFileManager.defaultManager removeItemAtPath:path error:nil];
@@ -1124,9 +1175,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         if (metadataChanged) [self savePreviewCacheMetadata];
         return;
     }
-    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.previewFilesDirectory error:nil] ?: @[]) {
         if ([name hasPrefix:@"preview-"] && [name.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
-            NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
+            NSString *path = [self.previewFilesDirectory stringByAppendingPathComponent:name];
             FCEvictPreviewFontAtPath(path);
             [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         }
@@ -1144,12 +1195,14 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     for (NSDictionary *item in stored ?: @[]) {
         if (![item isKindOfClass:NSDictionary.class]) continue;
         NSMutableDictionary *scheme = [item mutableCopy];
-        NSString *primary = scheme[@"primaryPath"];
-        NSString *optional = scheme[@"optionalPath"];
-        BOOL hasPrimary = primary.length && [NSFileManager.defaultManager fileExistsAtPath:primary];
-        BOOL hasOptional = optional.length && [NSFileManager.defaultManager fileExistsAtPath:optional];
-        if (!hasPrimary) [scheme removeObjectForKey:@"primaryPath"];
-        if (!hasOptional) [scheme removeObjectForKey:@"optionalPath"];
+        NSString *primary = [self resolvedPersistentImportPath:scheme[@"primaryPath"]];
+        NSString *optional = [self resolvedPersistentImportPath:scheme[@"optionalPath"]];
+        BOOL hasPrimary = primary.length > 0;
+        BOOL hasOptional = optional.length > 0;
+        if (hasPrimary) scheme[@"primaryPath"] = primary;
+        else [scheme removeObjectForKey:@"primaryPath"];
+        if (hasOptional) scheme[@"optionalPath"] = optional;
+        else [scheme removeObjectForKey:@"optionalPath"];
         if (hasPrimary || hasOptional) [self.fontSchemes addObject:scheme];
     }
     NSString *savedID = [[NSUserDefaults standardUserDefaults] stringForKey:@"FontChangeSelectedSchemeID"];
@@ -1207,7 +1260,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         return;
     }
     self.pendingPreviewRequests[cacheKey] = [NSMutableArray arrayWithObject:[completion copy]];
-    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
+    NSString *destination = [self.previewFilesDirectory stringByAppendingPathComponent:
         [NSString stringWithFormat:@"preview-%@.ttc", NSUUID.UUID.UUIDString]];
     BOOL directTTC = [source.pathExtension.lowercaseString isEqualToString:@"ttc"];
     __weak typeof(self) weakSelf = self;
@@ -1217,7 +1270,15 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
             status = [NSFileManager.defaultManager copyItemAtPath:source toPath:destination error:nil] ? 0 : 1;
         } else {
-            status = [weakSelf runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
+            NSString *stagedSource = [weakSelf.previewFilesDirectory stringByAppendingPathComponent:
+                [NSString stringWithFormat:@"source-%@.%@", NSUUID.UUID.UUIDString,
+                    source.pathExtension.length ? source.pathExtension : @"zip"]];
+            [NSFileManager.defaultManager removeItemAtPath:stagedSource error:nil];
+            BOOL staged = [NSFileManager.defaultManager copyItemAtPath:source toPath:stagedSource error:nil];
+            status = staged
+                ? [weakSelf runHelperArguments:@[@"--prepare-preview", kind, stagedSource, destination] wait:YES]
+                : 1;
+            [NSFileManager.defaultManager removeItemAtPath:stagedSource error:nil];
         }
         [[NSOperationQueue mainQueue] addOperationWithBlock:^{
             typeof(self) strongSelf = weakSelf;
@@ -2072,8 +2133,17 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     }];
     int importStatus = 0;
     if (!copied && !scoped) {
-        importStatus = [self runHelperArguments:@[@"--import", source.path, destination] wait:YES];
-        copied = importStatus == 0;
+        NSString *bridgeDestination = [self.previewFilesDirectory stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"import-%@.%@", NSUUID.UUID.UUIDString,
+                extension.length ? extension : @"zip"]];
+        [NSFileManager.defaultManager removeItemAtPath:bridgeDestination error:nil];
+        importStatus = [self runHelperArguments:@[@"--import", source.path, bridgeDestination] wait:YES];
+        if (importStatus == 0 && [self isUsablePersistentFile:bridgeDestination]) {
+            [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
+            copied = [NSFileManager.defaultManager copyItemAtPath:bridgeDestination
+                                                            toPath:destination error:&copyError];
+        }
+        [NSFileManager.defaultManager removeItemAtPath:bridgeDestination error:nil];
     }
     if (scoped) [source stopAccessingSecurityScopedResource];
     if (!copied) {
@@ -2082,6 +2152,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             @"导入失败：%@（安全作用域=%@，helper=%d）。", detail, scoped ? @"已获得" : @"未获得", importStatus];
         return;
     }
+    [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @0644}
+                                    ofItemAtPath:destination error:nil];
     if (self.pickingSlot == 1) {
         targetScheme = [@{
             @"id": schemeID,
@@ -2216,9 +2288,47 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     NSString *optional = self.optionalPath ?: @"-";
     NSString *appliedSchemeID = [self.selectedSchemeID copy];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSArray<NSString *> *helperArguments = restoringSystemFonts
-            ? @[@"--restore-system-fonts"] : @[@"--install", primary, optional];
-        int status = [self runHelperArguments:helperArguments wait:YES];
+        int status = 0;
+        NSMutableArray<NSString *> *stagedPaths = [NSMutableArray array];
+        NSString *helperPrimary = primary;
+        NSString *helperOptional = optional;
+        if (!restoringSystemFonts) {
+            NSString *bridge = self.previewFilesDirectory;
+            [NSFileManager.defaultManager createDirectoryAtPath:bridge
+                                    withIntermediateDirectories:YES attributes:nil error:nil];
+            if (![primary isEqualToString:@"-"]) {
+                helperPrimary = [bridge stringByAppendingPathComponent:[NSString stringWithFormat:
+                    @"install-%@.%@", NSUUID.UUID.UUIDString,
+                    primary.pathExtension.length ? primary.pathExtension : @"zip"]];
+                if ([NSFileManager.defaultManager copyItemAtPath:primary toPath:helperPrimary error:nil]) {
+                    [stagedPaths addObject:helperPrimary];
+                } else {
+                    status = 65;
+                }
+            }
+            if (status == 0 && ![optional isEqualToString:@"-"]) {
+                helperOptional = [bridge stringByAppendingPathComponent:[NSString stringWithFormat:
+                    @"install-%@.%@", NSUUID.UUID.UUIDString,
+                    optional.pathExtension.length ? optional.pathExtension : @"ttc"]];
+                if ([NSFileManager.defaultManager copyItemAtPath:optional toPath:helperOptional error:nil]) {
+                    [stagedPaths addObject:helperOptional];
+                } else {
+                    status = 65;
+                }
+            }
+        }
+        if (status == 0) {
+            NSArray<NSString *> *helperArguments = restoringSystemFonts
+                ? @[@"--restore-system-fonts"] : @[@"--install", helperPrimary, helperOptional];
+            status = [self runHelperArguments:helperArguments wait:YES];
+        } else {
+            [@"失败：无法将持久化字体包复制到 RootHide 临时处理目录。"
+                writeToFile:@"/var/mobile/Documents/fontchange_last_result.txt"
+                atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+        for (NSString *stagedPath in stagedPaths) {
+            [NSFileManager.defaultManager removeItemAtPath:stagedPath error:nil];
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (status != 0) {
                 self.runButton.enabled = YES;
