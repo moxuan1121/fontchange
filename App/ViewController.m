@@ -1386,6 +1386,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.draggedSchemeCard = nil;
     for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
         if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
+        [card.layer removeAnimationForKey:@"fontchange.reorder"];
+        card.layer.shouldRasterize = NO;
         [card setEditingAppearance:NO canUnlink:NO];
         [card setUsageAppearance:[card.schemeID isEqualToString:self.activeSchemeID]];
     }
@@ -1514,15 +1516,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         } completion:^(__unused BOOL finished) {
             card.layer.zPosition = 0;
             card.alpha = 1.0;
-            for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
-                if ([schemeCard isKindOfClass:FCFontSchemeCard.class]) schemeCard.layer.shouldRasterize = NO;
-            }
-            if (self.schemeEditing) {
-                for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
-                    if ([schemeCard isKindOfClass:FCFontSchemeCard.class]) [schemeCard startJiggle];
-                }
-            }
             self.draggedSchemeCard = nil;
+            // Adjacent cards can still be finishing their reorder springs.
+            // Keep their cached surfaces and wait briefly before replacing
+            // translation with the jiggle animation to avoid a one-frame flash.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.14 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                if (!self.schemeEditing || self.draggedSchemeCard) return;
+                for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
+                    if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
+                    [schemeCard.layer removeAnimationForKey:@"fontchange.reorder"];
+                    [schemeCard startJiggle];
+                }
+            });
         }];
         [self saveFontSchemes];
         [self updateSchemePageControl];
