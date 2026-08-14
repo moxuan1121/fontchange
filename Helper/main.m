@@ -116,31 +116,17 @@ static BOOL unsafeArchiveEntry(NSString *entry) {
     return NO;
 }
 
-static void configureArchiveLocale(void) {
-    // launchd/root helpers commonly inherit the POSIX locale. libarchive
-    // cannot convert Unicode RAR pathnames (stored as UTF-16BE) in that
-    // locale, so give bsdtar an explicit UTF-8 character environment.
-    setenv("LANG", "en_US.UTF-8", 1);
-    setenv("LC_ALL", "en_US.UTF-8", 1);
-}
-
-static NSString *compactArchiveError(NSString *details) {
-    if (details.length <= 1200) return details;
-    return [[details substringToIndex:1200] stringByAppendingString:@"\n…错误信息过长，已省略后续重复内容"];
-}
-
 static BOOL validateArchive(NSString *archivePath, NSString **failure) {
     NSString *bsdtar = [NSString stringWithUTF8String:jbroot("/usr/bin/bsdtar")];
     if (![NSFileManager.defaultManager isExecutableFileAtPath:bsdtar]) {
         if (failure) *failure = @"未找到 bsdtar，请安装或重新安装 libarchive-tools。";
         return NO;
     }
-    configureArchiveLocale();
     NSString *listing = nil;
     int status = runToolCapturingOutput(bsdtar, @[@"-tf", archivePath], &listing);
     if (status != 0) {
         if (failure) *failure = [NSString stringWithFormat:@"压缩包无法读取、已经损坏或使用了不支持的加密方式（%d）：%@",
-            status, listing.length ? compactArchiveError(listing) : @"bsdtar 没有返回错误详情"];
+            status, listing.length ? listing : @"bsdtar 没有返回错误详情"];
         return NO;
     }
     if (listing.length == 0) {
@@ -164,7 +150,7 @@ static BOOL extractArchive(NSString *archivePath, NSString *destination, NSStrin
         @[@"-xf", archivePath, @"-C", destination, @"--no-same-owner", @"--no-same-permissions"], &details);
     if (status != 0) {
         if (failure) *failure = [NSString stringWithFormat:@"解压失败（%d）：%@", status,
-            details.length ? compactArchiveError(details) : @"bsdtar 没有返回错误详情"];
+            details.length ? details : @"bsdtar 没有返回错误详情"];
         return NO;
     }
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:destination];
