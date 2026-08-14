@@ -8,7 +8,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 
 感谢 [lunaynx/mount-bindfs-dopamine](https://github.com/lunaynx/mount-bindfs-dopamine) 提供 Dopamine 环境下的 `bindfs` 挂载工具。
 
-同时感谢 [libarchive](https://github.com/libarchive/libarchive)、[RootHide](https://github.com/roothide) 与 [Theos](https://github.com/theos/theos) 社区提供的多格式解压能力、运行环境和开发工具。FontChange 与上述项目均为独立项目；相关名称及版权归各自项目所有。
+同时感谢 [RootHide](https://github.com/roothide) 与 [Theos](https://github.com/theos/theos) 社区提供的运行环境和开发工具。FontChange 与上述项目均为独立项目；相关名称及版权归各自项目所有。
 
 ## 功能亮点
 
@@ -18,7 +18,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 - **所见即所得的实时预览**：导入后即可预览中文、英文、数字和锁屏时钟字形，无需反复重启验证效果。
 - **多套字体方案管理**：保存多套字体组合，横向浏览并快速切换；“使用中”标识只显示设备当前实际应用的方案。
 - **快速而稳定的预览缓存**：字体解析结果和预览文件会复用，相同任务自动合并，并按七天周期刷新，减少重复解压与等待。
-- **支持主流压缩格式与 TTC**：全局字体及锁屏字体包支持 ZIP、ZIPX、RAR/RAR5、7Z、TAR、TGZ、TBZ2、TXZ、LHA/LZH 与 CAB 等格式，锁屏时钟也可直接导入 TTC；还可以从其他 App 通过系统分享菜单导入。
+- **支持 ZIP 与 TTC**：全局字体支持 ZIP 字体包，锁屏时钟支持 ZIP 或 TTC 文件；也可以从其他 App 通过系统分享菜单导入。
 - **兼容多种 Dopamine 挂载环境**：支持 Dopamine RootHide 与 zqbb 挂载版 Dopamine，并提供对应架构的安装包。
 - **兼容 `mount-bindfs-dopamine` 挂载**：自动检测并复用设备上已有的 `mount_bindfs` 字体挂载；没有可用的外部挂载时，再回退到 FontChange 自带挂载方案。
 - **一键恢复系统字体**：随时解除字体挂载并恢复 iOS 原生字体，同时完成语言缓存刷新与用户空间重启。
@@ -26,7 +26,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 
 ## 界面与操作
 
-1. 点击“导入字体”，选择全局字体压缩包或自定义锁屏时钟字体。
+1. 点击“导入字体”，选择全局字体 ZIP 或自定义锁屏时钟字体。
 2. 在“字体方案”中选择需要使用的组合。
 3. 点击上方预览卡片，在全局字体与自定义锁屏时钟之间切换预览。
 4. 点击“检查并开始执行”。FontChange 会依次完成字体替换、临时语言环境切换、全局字体缓存重建、原语言恢复和用户空间重启。
@@ -39,7 +39,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 - iOS 15.0 或更高版本
 - Dopamine RootHide：`iphoneos-arm64e`
 - zqbb 挂载版 Dopamine：`iphoneos-arm64`
-- [`mount-bindfs-dopamine`](https://github.com/lunaynx/mount-bindfs-dopamine) 外部字体挂载方案
+- 赵楠 `mount_bindfs` 外部字体挂载方案
 - 当前版本：`1.0`
 
 两个安装包使用相同的包标识 `com.moxuan.fontchange`。请选择与你当前越狱环境对应的版本，不要交叉安装。

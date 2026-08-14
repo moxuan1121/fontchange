@@ -17,36 +17,6 @@
 extern char **environ;
 typedef void (^FCPreviewCompletion)(NSString *path);
 
-static NSSet<NSString *> *FCFontArchiveExtensions(void) {
-    static NSSet<NSString *> *extensions;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        extensions = [NSSet setWithArray:@[
-            @"zip", @"zipx", @"rar", @"7z", @"tar", @"tgz", @"gz",
-            @"tbz", @"tbz2", @"bz2", @"txz", @"xz", @"tzst", @"zst",
-            @"lha", @"lzh", @"cab"
-        ]];
-    });
-    return extensions;
-}
-
-static BOOL FCIsFontArchiveExtension(NSString *extension) {
-    return [FCFontArchiveExtensions() containsObject:extension.lowercaseString];
-}
-
-static NSString *FCArchiveDisplayName(NSString *fileName) {
-    NSString *lowercase = fileName.lowercaseString;
-    NSArray<NSString *> *suffixes = @[@".tar.gz", @".tar.bz2", @".tar.xz", @".tar.zst", @".zipx",
-        @".zip", @".rar", @".7z", @".tar", @".tgz", @".tbz2", @".tbz", @".txz", @".tzst",
-        @".gz", @".bz2", @".xz", @".zst", @".lha", @".lzh", @".cab", @".ttc"];
-    for (NSString *suffix in suffixes) {
-        if ([lowercase hasSuffix:suffix] && fileName.length > suffix.length) {
-            return [fileName substringToIndex:fileName.length - suffix.length];
-        }
-    }
-    return fileName.stringByDeletingPathExtension;
-}
-
 @interface FCFontPreviewView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setDisplayName:(NSString *)name;
@@ -753,7 +723,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     importTitle.translatesAutoresizingMaskIntoConstraints = NO;
     importTitle.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
     importTitle.textAlignment = NSTextAlignmentLeft;
-    UILabel *importSubtitle = [self label:@"支持 ZIP、RAR、7Z 等压缩包与 TTC" size:11 color:UIColor.secondaryLabelColor];
+    UILabel *importSubtitle = [self label:@"支持 ZIP 字体包与 TTC 文件" size:11 color:UIColor.secondaryLabelColor];
     importSubtitle.translatesAutoresizingMaskIntoConstraints = NO;
     importSubtitle.textAlignment = NSTextAlignmentLeft;
     UIStackView *importText = [[UIStackView alloc] initWithArrangedSubviews:@[importTitle, importSubtitle]];
@@ -1530,7 +1500,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
             : @"导入全局字体或建立一个仅锁屏字体方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
         preferredStyle:UIAlertControllerStyleActionSheet];
-    [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体压缩包" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+    [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体 ZIP" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self presentPickerForSlot:1];
     }]];
     if (hasCurrentScheme) {
@@ -1629,13 +1599,13 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             [self presentViewController:ttcAlert animated:YES completion:nil];
             return;
         }
-        if (!FCIsFontArchiveExtension(extension)) {
-            self.statusLabel.text = @"不支持这个文件格式，请选择字体压缩包或 TTC 文件。";
+        if (![extension isEqualToString:@"zip"]) {
+            self.statusLabel.text = @"外部导入仅支持 ZIP 或 TTC 文件。";
             return;
         }
         UIAlertController *alert = [UIAlertController
             alertControllerWithTitle:@"导入字体文件"
-                             message:@"请选择这个字体压缩包的用途。"
+                             message:@"请选择这个 ZIP 的用途。"
                       preferredStyle:UIAlertControllerStyleAlert];
         BOOL hasCurrentScheme = [self selectedScheme] != nil;
         [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -1665,11 +1635,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
-    UTType *archiveType = UTTypeArchive;
-    NSArray<UTType *> *types = @[archiveType];
+    NSArray<UTType *> *types = @[UTTypeZIP];
     if (slot >= 2) {
         UTType *ttcType = [UTType typeWithFilenameExtension:@"ttc"] ?: UTTypeFont;
-        types = @[archiveType, ttcType];
+        types = @[UTTypeZIP, ttcType];
     }
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
         initForOpeningContentTypes:types asCopy:NO];
@@ -1692,12 +1661,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)importPickedURL:(NSURL *)source {
     NSString *extension = source.pathExtension.lowercaseString;
-    BOOL acceptsArchive = FCIsFontArchiveExtension(extension);
+    BOOL acceptsZIP = [extension isEqualToString:@"zip"];
     BOOL acceptsTTC = self.pickingSlot >= 2 && [extension isEqualToString:@"ttc"];
-    if (!acceptsArchive && !acceptsTTC) {
+    if (!acceptsZIP && !acceptsTTC) {
         self.statusLabel.text = self.pickingSlot == 1
-            ? @"请选择 ZIP、RAR、7Z、TAR 等字体压缩包。"
-            : @"请选择字体压缩包或单个 .ttc 文件。";
+            ? @"主要字体包必须是 .zip 文件。"
+            : @"请选择字体 ZIP 或单个 .ttc 文件。";
         return;
     }
     NSMutableDictionary *targetScheme = self.pickingSlot == 2 ? [self selectedScheme] : nil;
@@ -1734,9 +1703,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     if (self.pickingSlot == 1) {
         targetScheme = [@{
             @"id": schemeID,
-            @"name": FCArchiveDisplayName(source.lastPathComponent) ?: @"全局字体",
+            @"name": source.lastPathComponent.stringByDeletingPathExtension ?: @"全局字体",
             @"primaryPath": destination,
-            @"primaryDisplayName": FCArchiveDisplayName(source.lastPathComponent) ?: @"全局字体",
+            @"primaryDisplayName": source.lastPathComponent.stringByDeletingPathExtension ?: @"全局字体",
         } mutableCopy];
         [self.fontSchemes addObject:targetScheme];
         self.selectedSchemeID = schemeID;
@@ -1745,7 +1714,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         if (!targetScheme) {
             targetScheme = [@{
                 @"id": schemeID,
-                @"name": FCArchiveDisplayName(source.lastPathComponent) ?: @"锁屏字体",
+                @"name": source.lastPathComponent.stringByDeletingPathExtension ?: @"锁屏字体",
             } mutableCopy];
             [self.fontSchemes addObject:targetScheme];
         }
@@ -1755,7 +1724,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             [NSFileManager.defaultManager removeItemAtPath:oldOptional error:nil];
         }
         targetScheme[@"optionalPath"] = destination;
-        targetScheme[@"optionalDisplayName"] = FCArchiveDisplayName(source.lastPathComponent) ?: @"锁屏字体";
+        targetScheme[@"optionalDisplayName"] = source.lastPathComponent.stringByDeletingPathExtension ?: @"锁屏字体";
         if (![targetScheme[@"primaryPath"] length]) targetScheme[@"name"] = targetScheme[@"optionalDisplayName"];
         self.selectedSchemeID = targetScheme[@"id"];
         self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
