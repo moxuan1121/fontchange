@@ -1463,10 +1463,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             targetIndex = index;
         }
         if (currentIndex != NSNotFound && targetIndex != currentIndex) {
-            NSMutableDictionary<NSValue *, NSValue *> *oldCenters = [NSMutableDictionary dictionary];
+            NSMutableDictionary<NSValue *, NSNumber *> *oldVisualCenters = [NSMutableDictionary dictionary];
             for (FCFontSchemeCard *otherCard in cards) {
                 if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
-                oldCenters[[NSValue valueWithNonretainedObject:otherCard]] = [NSValue valueWithCGPoint:otherCard.center];
+                CALayer *visibleLayer = otherCard.layer.presentationLayer ?: otherCard.layer;
+                oldVisualCenters[[NSValue valueWithNonretainedObject:otherCard]] = @(CGRectGetMidX(visibleLayer.frame));
             }
             NSMutableDictionary *scheme = self.fontSchemes[currentIndex];
             [self.fontSchemes removeObjectAtIndex:currentIndex];
@@ -1478,24 +1479,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             followDelta = stackPoint.x - card.center.x;
             followTransform = CGAffineTransformMakeTranslation(followDelta, 0);
             card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
-            NSMutableArray<FCFontSchemeCard *> *movedCards = [NSMutableArray array];
             for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                 if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
-                CGPoint oldCenter = [oldCenters[[NSValue valueWithNonretainedObject:otherCard]] CGPointValue];
-                CGFloat delta = oldCenter.x - otherCard.center.x;
+                CGFloat oldVisualX = [oldVisualCenters[[NSValue valueWithNonretainedObject:otherCard]] doubleValue];
+                CGFloat delta = oldVisualX - otherCard.layer.position.x;
                 if (fabs(delta) > 0.5) {
-                    otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
-                    [movedCards addObject:otherCard];
+                    CABasicAnimation *shift = [CABasicAnimation animationWithKeyPath:@"transform.translation.x"];
+                    shift.fromValue = @(delta);
+                    shift.toValue = @0;
+                    shift.duration = 0.42;
+                    shift.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+                    [otherCard.layer addAnimation:shift forKey:@"fontchange.reorder"];
                 }
             }
-            // A cubic ease-in-out avoids the spring's fast initial kick. Only
-            // the cards whose slots changed participate in this transaction.
-            [UIView animateWithDuration:0.42 delay:0 options:UIViewAnimationOptionCurveEaseInOut |
-                UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
-                for (FCFontSchemeCard *otherCard in movedCards) {
-                    otherCard.transform = CGAffineTransformIdentity;
-                }
-            } completion:nil];
         }
         return;
     }
