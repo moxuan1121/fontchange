@@ -1484,14 +1484,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                 CGFloat oldVisualX = [oldVisualCenters[[NSValue valueWithNonretainedObject:otherCard]] doubleValue];
                 CGFloat delta = oldVisualX - otherCard.layer.position.x;
                 if (fabs(delta) > 0.5) {
-                    CABasicAnimation *shift = [CABasicAnimation animationWithKeyPath:@"transform.translation.x"];
+                    CASpringAnimation *shift = [CASpringAnimation animationWithKeyPath:@"transform.translation.x"];
                     shift.fromValue = @(delta);
                     shift.toValue = @0;
-                    shift.duration = 0.42;
-                    shift.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+                    shift.mass = 1.0;
+                    shift.stiffness = 310.0;
+                    shift.damping = 30.0;
+                    shift.initialVelocity = 0.0;
+                    shift.duration = shift.settlingDuration;
                     [otherCard.layer addAnimation:shift forKey:@"fontchange.reorder"];
                 }
             }
+            UISelectionFeedbackGenerator *feedback = [[UISelectionFeedbackGenerator alloc] init];
+            [feedback selectionChanged];
         }
         return;
     }
