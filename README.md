@@ -4,6 +4,12 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 
 全局系统字体与锁屏时钟字体被集中在同一个直观界面中，字体导入、组合、预览、替换和恢复都能在 App 内完成。
 
+## 开源致谢
+
+感谢 [lunaynx/mount-bindfs-dopamine](https://github.com/lunaynx/mount-bindfs-dopamine) 提供 Dopamine 环境下的 `bindfs` 挂载工具。FontChange 可检测并复用该项目提供的 `mount_bindfs`，共同实现更灵活的字体挂载。
+
+同时感谢 [RootHide](https://github.com/roothide) 与 [Theos](https://github.com/theos/theos) 社区提供的运行环境和开发工具。FontChange 与上述项目均为独立项目；相关名称及版权归各自项目所有。
+
 ## 功能亮点
 
 - **真正的一键替换与缓存刷新**：一次确认即可自动完成字体包校验、字体挂载、语言环境切换、全局字体缓存重建、原语言恢复和用户空间重启，无需手动进入设置反复切换语言。
@@ -14,7 +20,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 - **快速而稳定的预览缓存**：字体解析结果和预览文件会复用，相同任务自动合并，并按七天周期刷新，减少重复解压与等待。
 - **支持 ZIP 与 TTC**：全局字体支持 ZIP 字体包，锁屏时钟支持 ZIP 或 TTC 文件；也可以从其他 App 通过系统分享菜单导入。
 - **兼容多种 Dopamine 挂载环境**：支持 Dopamine RootHide 与 zqbb 挂载版 Dopamine，并提供对应架构的安装包。
-- **兼容赵楠 `mount_bindfs` 挂载**：自动检测并复用设备上已有的 `mount_bindfs` 字体挂载；没有可用的外部挂载时，再回退到 FontChange 自带挂载方案。
+- **兼容 `mount-bindfs-dopamine` 挂载**：自动检测并复用设备上已有的 `mount_bindfs` 字体挂载；没有可用的外部挂载时，再回退到 FontChange 自带挂载方案。
 - **一键恢复系统字体**：随时解除字体挂载并恢复 iOS 原生字体，同时完成语言缓存刷新与用户空间重启。
 - **执行过程可追踪**：现代化底部日志面板记录操作日期和时刻，支持复制与清理。
 
