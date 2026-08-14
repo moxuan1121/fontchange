@@ -72,6 +72,7 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
         UniChar *characters = calloc(length, sizeof(UniChar));
         CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
         [probe getCharacters:characters range:NSMakeRange(0, length)];
+        CFIndex bestCoverage = -1;
         for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
             CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 27.0, NULL);
