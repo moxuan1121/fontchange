@@ -10,6 +10,7 @@
 #import <CoreText/CoreText.h>
 
 extern char **environ;
+typedef void (^FCPreviewCompletion)(NSString *path);
 
 @interface FCFontPreviewView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
@@ -18,6 +19,17 @@ extern char **environ;
 - (void)setShowsSwitchHint:(BOOL)showsSwitchHint;
 - (void)clearFont;
 @end
+
+static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
+    static NSCache<NSString *, id> *cache;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache = [[NSCache alloc] init];
+        cache.name = @"com.moxuan.fontchange.main-preview-fonts";
+        cache.countLimit = 24;
+    });
+    return cache;
+}
 
 @implementation FCFontPreviewView {
     CTFontRef _previewFont;
@@ -34,6 +46,17 @@ extern char **environ;
     if (_previewFont) {
         CFRelease(_previewFont);
         _previewFont = NULL;
+    }
+    if (!path.length) {
+        [self setNeedsDisplay];
+        return NO;
+    }
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", path, _lockScreenPreview ? @"lock" : @"global"];
+    CTFontRef cachedFont = (__bridge CTFontRef)[FCMainPreviewFontCache() objectForKey:cacheKey];
+    if (cachedFont) {
+        _previewFont = CFRetain(cachedFont);
+        [self setNeedsDisplay];
+        return YES;
     }
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
@@ -68,6 +91,7 @@ extern char **environ;
         free(glyphs);
     }
     if (descriptors) CFRelease(descriptors);
+    if (_previewFont) [FCMainPreviewFontCache() setObject:(__bridge id)_previewFont forKey:cacheKey];
     [self setNeedsDisplay];
     return _previewFont != NULL;
 }
@@ -201,7 +225,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
                                       : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, headlineSize, NULL);
     CTFontRef detail = _previewFont ? CTFontCreateCopyWithAttributes(_previewFont, 17.0 * scale, NULL, NULL)
                                     : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 17.0 * scale, NULL);
-    CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 10.0 * scale, NULL);
+    CTFontRef nameFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 8.0 * scale, NULL);
     CTFontRef hintFont = CTFontCreateUIFontForLanguage(kCTFontUIFontEmphasizedSystem, 8.5 * scale, NULL);
     FCDrawPreviewLine(context, _lockScreenPreview ? @"自定义锁屏时钟" : @"实时预览",
                       badge, ink, 23, 102 * scale, width - 46, 10 * scale);
@@ -249,6 +273,13 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
         cache.countLimit = 48;
     });
     return cache;
+}
+
+static void FCEvictPreviewFontAtPath(NSString *path) {
+    if (!path.length) return;
+    [FCSchemeSampleFontCache() removeObjectForKey:path];
+    [FCMainPreviewFontCache() removeObjectForKey:[path stringByAppendingString:@"|global"]];
+    [FCMainPreviewFontCache() removeObjectForKey:[path stringByAppendingString:@"|lock"]];
 }
 
 @implementation FCFontSchemeSampleView {
@@ -357,6 +388,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 @property(nonatomic, strong) UIButton *deleteButton;
 @property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
+@property(nonatomic, copy) NSString *lastFittedName;
+@property(nonatomic) CGFloat lastFittedNameWidth;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setSelectedAppearance:(BOOL)selected;
 - (void)setUsageAppearance:(BOOL)inUse;
@@ -456,6 +489,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     [super layoutSubviews];
     if (!self.nameLabel.text.length || CGRectGetWidth(self.nameLabel.bounds) <= 1.0) return;
     CGFloat availableWidth = CGRectGetWidth(self.nameLabel.bounds);
+    if ([self.lastFittedName isEqualToString:self.nameLabel.text]
+        && fabs(self.lastFittedNameWidth - availableWidth) < 0.5) return;
     CGFloat availableHeight = 36.0;
     CGFloat fittedSize = 14.0;
     while (fittedSize > 8.0) {
@@ -469,6 +504,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     if (fabs(self.nameLabel.font.pointSize - fittedSize) > 0.1) {
         self.nameLabel.font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
     }
+    self.lastFittedName = self.nameLabel.text;
+    self.lastFittedNameWidth = availableWidth;
 }
 
 - (BOOL)loadFontAtPath:(NSString *)path {
@@ -516,7 +553,6 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 @property(nonatomic, copy) NSString *optionalPath;
 @property(nonatomic, copy) NSString *primaryDisplayName;
 @property(nonatomic, copy) NSString *optionalDisplayName;
-@property(nonatomic, copy) NSString *mountMode;
 @property(nonatomic, strong) UILabel *mountLabel;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) UIButton *runButton;
@@ -534,6 +570,8 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 @property(nonatomic, strong) UITextView *logTextView;
 @property(nonatomic, strong) NSMutableArray<NSMutableDictionary *> *fontSchemes;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *schemePreviewCache;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray *> *pendingPreviewRequests;
+@property(nonatomic, strong) NSOperationQueue *previewQueue;
 @property(nonatomic, copy) NSString *selectedSchemeID;
 @property(nonatomic, copy) NSString *activeSchemeID;
 @property(nonatomic) NSInteger selectedPreviewSlot;
@@ -548,7 +586,13 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 - (NSString *)previewCacheMetadataPath;
 - (void)savePreviewCacheMetadata;
 - (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated;
+- (NSInteger)schemePageCount;
+- (void)updateSchemePageControlForOffset:(CGFloat)offset;
 - (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
+- (void)requestPreviewForSchemeID:(NSString *)schemeID
+                             kind:(NSString *)kind
+                           source:(NSString *)source
+                       completion:(FCPreviewCompletion)completion;
 @end
 
 @implementation ViewController
@@ -559,6 +603,11 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     NSDictionary *storedPreviewCache = [NSDictionary dictionaryWithContentsOfFile:self.previewCacheMetadataPath];
     self.schemePreviewCache = [storedPreviewCache isKindOfClass:NSDictionary.class]
         ? [storedPreviewCache mutableCopy] : [NSMutableDictionary dictionary];
+    self.pendingPreviewRequests = [NSMutableDictionary dictionary];
+    self.previewQueue = [[NSOperationQueue alloc] init];
+    self.previewQueue.name = @"com.moxuan.fontchange.preview-generation";
+    self.previewQueue.qualityOfService = NSQualityOfServiceUserInitiated;
+    self.previewQueue.maxConcurrentOperationCount = 2;
     self.logEntries = [NSMutableArray array];
     self.activeSchemeID = [NSUserDefaults.standardUserDefaults stringForKey:@"FontChangeActiveSchemeID"];
     self.selectedPreviewSlot = 0;
@@ -648,7 +697,7 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     ]];
 
     self.schemePageControl = [[UIPageControl alloc] init];
-    self.schemePageControl.hidesForSinglePage = YES;
+    self.schemePageControl.hidesForSinglePage = NO;
     self.schemePageControl.currentPageIndicatorTintColor = UIColor.systemOrangeColor;
     self.schemePageControl.pageIndicatorTintColor = UIColor.tertiaryLabelColor;
     [self.schemePageControl addTarget:self action:@selector(schemePageChanged:) forControlEvents:UIControlEventValueChanged];
@@ -715,14 +764,6 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     logLabel.textDidChange = ^(NSString *text) { [weakSelf appendLogEntry:text]; };
     self.statusLabel = logLabel;
     [self appendLogEntry:self.statusLabel.text];
-    self.statusLabel.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
-    self.statusLabel.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
-    self.statusLabel.layer.cornerRadius = 18;
-    self.statusLabel.layer.masksToBounds = YES;
-    self.statusLabel.layer.borderWidth = 0.5;
-    self.statusLabel.layer.borderColor = UIColor.separatorColor.CGColor;
-    [self.statusLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
-    [self.statusLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisVertical];
 
     self.selectedSummaryButton = [self button:@"尚未选择字体方案" action:nil];
     self.selectedSummaryButton.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
@@ -810,7 +851,6 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     [super traitCollectionDidChange:previousTraitCollection];
     if (@available(iOS 13.0, *)) {
         if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
-            self.statusLabel.layer.borderColor = UIColor.separatorColor.CGColor;
             self.importButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.28].CGColor;
             self.selectedSummaryButton.layer.borderColor = UIColor.separatorColor.CGColor;
             self.logButton.layer.borderColor = UIColor.separatorColor.CGColor;
@@ -908,12 +948,38 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     if (![lastRefresh isKindOfClass:NSDate.class]) {
         [defaults setObject:NSDate.date forKey:@"FontChangePreviewCacheLastRefresh"];
     }
-    if (!shouldRefresh) return;
+    if (!shouldRefresh) {
+        BOOL metadataChanged = NO;
+        NSMutableSet<NSString *> *referencedPaths = [NSMutableSet set];
+        for (NSString *key in self.schemePreviewCache.allKeys.copy) {
+            NSString *path = self.schemePreviewCache[key];
+            if (path.length && [NSFileManager.defaultManager fileExistsAtPath:path]) {
+                [referencedPaths addObject:path];
+            } else {
+                [self.schemePreviewCache removeObjectForKey:key];
+                metadataChanged = YES;
+            }
+        }
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
+            if (![name hasPrefix:@"preview-"] || ![name.pathExtension.lowercaseString isEqualToString:@"ttc"]) continue;
+            NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
+            if (![referencedPaths containsObject:path]) {
+                FCEvictPreviewFontAtPath(path);
+                [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+            }
+        }
+        if (metadataChanged) [self savePreviewCacheMetadata];
+        return;
+    }
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
         if ([name hasPrefix:@"preview-"] && [name.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
-            [NSFileManager.defaultManager removeItemAtPath:[self.importsDirectory stringByAppendingPathComponent:name] error:nil];
+            NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
+            FCEvictPreviewFontAtPath(path);
+            [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         }
     }
+    [FCMainPreviewFontCache() removeAllObjects];
+    [FCSchemeSampleFontCache() removeAllObjects];
     [self.schemePreviewCache removeAllObjects];
     [self savePreviewCacheMetadata];
     [defaults setObject:NSDate.date forKey:@"FontChangePreviewCacheLastRefresh"];
@@ -967,6 +1033,60 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     return [NSString stringWithFormat:@"%@|%@|%@", schemeID ?: @"", kind ?: @"", source ?: @""];
 }
 
+- (void)requestPreviewForSchemeID:(NSString *)schemeID
+                             kind:(NSString *)kind
+                           source:(NSString *)source
+                       completion:(FCPreviewCompletion)completion {
+    if (!source.length || !completion) return;
+    NSString *cacheKey = [self previewCacheKeyForSchemeID:schemeID kind:kind source:source];
+    NSString *cached = self.schemePreviewCache[cacheKey];
+    if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
+        completion(cached);
+        return;
+    }
+    if (cached.length) {
+        [self.schemePreviewCache removeObjectForKey:cacheKey];
+        [self savePreviewCacheMetadata];
+    }
+    NSMutableArray *waiting = self.pendingPreviewRequests[cacheKey];
+    if (waiting) {
+        [waiting addObject:[completion copy]];
+        return;
+    }
+    self.pendingPreviewRequests[cacheKey] = [NSMutableArray arrayWithObject:[completion copy]];
+    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"preview-%@.ttc", NSUUID.UUID.UUIDString]];
+    BOOL directTTC = [source.pathExtension.lowercaseString isEqualToString:@"ttc"];
+    __weak typeof(self) weakSelf = self;
+    [self.previewQueue addOperationWithBlock:^{
+        int status = 0;
+        if (directTTC) {
+            [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
+            status = [NSFileManager.defaultManager copyItemAtPath:source toPath:destination error:nil] ? 0 : 1;
+        } else {
+            status = [weakSelf runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
+        }
+        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            NSString *result = status == 0 && [NSFileManager.defaultManager fileExistsAtPath:destination]
+                ? destination : nil;
+            NSArray *completions = [strongSelf.pendingPreviewRequests[cacheKey] copy];
+            [strongSelf.pendingPreviewRequests removeObjectForKey:cacheKey];
+            if (result.length) {
+                NSString *replaced = strongSelf.schemePreviewCache[cacheKey];
+                strongSelf.schemePreviewCache[cacheKey] = result;
+                [strongSelf savePreviewCacheMetadata];
+                if (replaced.length && ![replaced isEqualToString:result]) {
+                    FCEvictPreviewFontAtPath(replaced);
+                    [NSFileManager.defaultManager removeItemAtPath:replaced error:nil];
+                }
+            }
+            for (FCPreviewCompletion callback in completions) callback(result);
+        }];
+    }];
+}
+
 - (void)invalidatePreviewCacheForSchemeID:(NSString *)schemeID {
     if (!schemeID.length) return;
     NSString *prefix = [schemeID stringByAppendingString:@"|"];
@@ -974,7 +1094,10 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     for (NSString *key in keys) {
         if (![key hasPrefix:prefix]) continue;
         NSString *path = self.schemePreviewCache[key];
-        if (path.length) [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        if (path.length) {
+            FCEvictPreviewFontAtPath(path);
+            [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        }
         [self.schemePreviewCache removeObjectForKey:key];
     }
     [self savePreviewCacheMetadata];
@@ -1062,36 +1185,11 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     NSString *source = [scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"];
     if (!source.length) return;
     NSString *kind = [scheme[@"primaryPath"] length] ? @"primary" : @"optional";
-    NSString *cacheKey = [self previewCacheKeyForSchemeID:scheme[@"id"] kind:kind source:source];
-    NSString *cached = self.schemePreviewCache[cacheKey];
-    if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
-        [card loadFontAtPath:cached];
-        return;
-    } else if (cached.length) {
-        [self.schemePreviewCache removeObjectForKey:cacheKey];
-        [self savePreviewCacheMetadata];
-    }
-    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"preview-card-%@.ttc", NSUUID.UUID.UUIDString]];
-    BOOL directTTC = [source.pathExtension.lowercaseString isEqualToString:@"ttc"];
     NSString *schemeID = [scheme[@"id"] copy];
-    __weak typeof(self) weakSelf = self;
     __weak FCFontSchemeCard *weakCard = card;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        int status = 0;
-        if (directTTC) {
-            [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
-            status = [NSFileManager.defaultManager copyItemAtPath:source toPath:destination error:nil] ? 0 : 1;
-        } else {
-            status = [weakSelf runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (status != 0 || ![NSFileManager.defaultManager fileExistsAtPath:destination]) return;
-            weakSelf.schemePreviewCache[cacheKey] = destination;
-            [weakSelf savePreviewCacheMetadata];
-            if ([weakCard.schemeID isEqualToString:schemeID]) [weakCard loadFontAtPath:destination];
-        });
-    });
+    [self requestPreviewForSchemeID:schemeID kind:kind source:source completion:^(NSString *path) {
+        if (path.length && [weakCard.schemeID isEqualToString:schemeID]) [weakCard loadFontAtPath:path];
+    }];
 }
 
 - (void)rebuildSchemeCards {
@@ -1178,33 +1276,32 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
     CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
     CGFloat target = MAX(0, MIN(maxOffset, center.x - width * 0.5));
-    self.schemePageControl.currentPage = index;
     [self.schemeScrollView setContentOffset:CGPointMake(target, 0) animated:animated];
+    [self updateSchemePageControlForOffset:target];
 }
 
-- (void)updateSchemePageControl {
-    NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
-    self.schemePageControl.numberOfPages = (NSInteger)cards.count;
+- (NSInteger)schemePageCount {
     CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
-    if (cards.count == 0 || width <= 1.0) {
+    CGFloat contentWidth = self.schemeScrollView.contentSize.width;
+    if (self.schemeStackView.arrangedSubviews.count == 0 || width <= 1.0 || contentWidth <= 1.0) return 0;
+    return MAX(1, (NSInteger)ceil(contentWidth / width));
+}
+
+- (void)updateSchemePageControlForOffset:(CGFloat)offset {
+    NSInteger pageCount = [self schemePageCount];
+    self.schemePageControl.numberOfPages = pageCount;
+    if (pageCount <= 1) {
         self.schemePageControl.currentPage = 0;
         return;
     }
-    CGFloat currentOffset = self.schemeScrollView.contentOffset.x;
+    CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
     CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
-    NSInteger nearest = 0;
-    CGFloat nearestDistance = CGFLOAT_MAX;
-    for (NSInteger index = 0; index < (NSInteger)cards.count; index++) {
-        UIView *card = cards[index];
-        CGPoint center = [card.superview convertPoint:card.center toView:self.schemeScrollView];
-        CGFloat pageOffset = MAX(0, MIN(maxOffset, center.x - width * 0.5));
-        CGFloat distance = fabs(pageOffset - currentOffset);
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearest = index;
-        }
-    }
-    self.schemePageControl.currentPage = nearest;
+    CGFloat progress = maxOffset > 0 ? MAX(0, MIN(1, offset / maxOffset)) : 0;
+    self.schemePageControl.currentPage = (NSInteger)lround(progress * (pageCount - 1));
+}
+
+- (void)updateSchemePageControl {
+    [self updateSchemePageControlForOffset:self.schemeScrollView.contentOffset.x];
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
@@ -1212,16 +1309,24 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 }
 
 - (void)schemePageChanged:(UIPageControl *)sender {
-    NSInteger lastIndex = (NSInteger)self.schemeStackView.arrangedSubviews.count - 1;
-    if (lastIndex < 0) return;
-    [self scrollToSchemeIndex:MAX(0, MIN(sender.currentPage, lastIndex)) animated:YES];
+    NSInteger pageCount = [self schemePageCount];
+    if (pageCount <= 1) return;
+    NSInteger page = MAX(0, MIN(sender.currentPage, pageCount - 1));
+    CGFloat width = CGRectGetWidth(self.schemeScrollView.bounds);
+    CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - width);
+    CGFloat target = maxOffset * page / (CGFloat)(pageCount - 1);
+    [self.schemeScrollView setContentOffset:CGPointMake(target, 0) animated:YES];
 }
 
 - (void)appendLogEntry:(NSString *)text {
     if (!text.length) return;
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
-    formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+    static NSDateFormatter *formatter;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        formatter = [[NSDateFormatter alloc] init];
+        formatter.locale = [NSLocale localeWithLocaleIdentifier:@"zh_CN"];
+        formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
+    });
     NSString *entry = [NSString stringWithFormat:@"[%@]\n%@", [formatter stringFromDate:NSDate.date], text];
     [self.logEntries addObject:entry];
     if (self.logEntries.count > 200) {
@@ -1419,43 +1524,14 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
     NSString *displayName = slot >= 2 ? self.optionalDisplayName : self.primaryDisplayName;
     [self.previewView setDisplayName:displayName ?: source.lastPathComponent.stringByDeletingPathExtension];
     NSString *kind = slot >= 2 ? @"optional" : @"primary";
-    NSString *cacheKey = [self previewCacheKeyForSchemeID:self.selectedSchemeID kind:kind source:source];
-    NSString *cached = self.schemePreviewCache[cacheKey];
-    if (cached.length && [NSFileManager.defaultManager fileExistsAtPath:cached]) {
-        if (![self.previewView loadFontAtPath:cached]) {
-            [self.schemePreviewCache removeObjectForKey:cacheKey];
-            [self savePreviewCacheMetadata];
-        } else {
-            return;
+    NSString *schemeID = [self.selectedSchemeID copy];
+    __weak typeof(self) weakSelf = self;
+    [self requestPreviewForSchemeID:schemeID kind:kind source:source completion:^(NSString *path) {
+        if (generation != weakSelf.previewGeneration) return;
+        if (!path.length || ![weakSelf.previewView loadFontAtPath:path]) {
+            weakSelf.statusLabel.text = @"字体已导入，但未能生成字体预览；不影响正常替换。";
         }
-    }
-    NSString *destination = [self.importsDirectory stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"preview-%@.ttc", NSUUID.UUID.UUIDString]];
-    BOOL directTTC = [source.pathExtension.lowercaseString isEqualToString:@"ttc"];
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        int status = 0;
-        if (directTTC) {
-            NSError *copyError = nil;
-            [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
-            if (![NSFileManager.defaultManager copyItemAtPath:source toPath:destination error:&copyError]) status = 1;
-        } else {
-            status = [self runHelperArguments:@[@"--prepare-preview", kind, source, destination] wait:YES];
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (status == 0 && [NSFileManager.defaultManager fileExistsAtPath:destination]) {
-                NSString *replaced = self.schemePreviewCache[cacheKey];
-                self.schemePreviewCache[cacheKey] = destination;
-                [self savePreviewCacheMetadata];
-                if (replaced.length && ![replaced isEqualToString:destination]) {
-                    [NSFileManager.defaultManager removeItemAtPath:replaced error:nil];
-                }
-            }
-            if (generation != self.previewGeneration) return;
-            if (status != 0 || ![self.previewView loadFontAtPath:destination]) {
-                self.statusLabel.text = @"字体已导入，但未能生成字体预览；不影响正常替换。";
-            }
-        });
-    });
+    }];
 }
 
 - (void)detectMountMode {
@@ -1465,7 +1541,6 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
             (status == 11 ? @"mount-bindfs" :
             (status == 14 ? @"fontchange" : (status == 15 ? @"repair-needed" : @"uninitialized")));
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.mountMode = mode;
             if ([mode isEqualToString:@"mnt"]) {
                 self.mountLabel.text = @"● 外部挂载 · mnt（当前生效）";
                 self.mountLabel.textColor = UIColor.systemGreenColor;
