@@ -1,6 +1,6 @@
 Package: com.moxuan.fontchange
 Name: FontChange
-Version: 1.1
+Version: 1.1.1
 Architecture: iphoneos-arm64e
 Description: Manages custom system and lock-screen fonts on supported iOS 15+ jailbreak environments, refreshes language caches, restores system fonts, and reboots userspace.
 Maintainer: moxuan1121

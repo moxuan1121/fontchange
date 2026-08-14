@@ -1123,6 +1123,16 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     }
     [NSFileManager.defaultManager createDirectoryAtPath:self.importsDirectory withIntermediateDirectories:YES attributes:nil error:nil];
     [NSFileManager.defaultManager createDirectoryAtPath:self.previewFilesDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    // 1.1 briefly stored generated previews beside persistent imports. They
+    // are disposable and use a reserved prefix that imported source files do
+    // not use, so remove every migration leftover from the durable directory.
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
+        if ([name hasPrefix:@"preview-"] && [name.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
+            NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
+            FCEvictPreviewFontAtPath(path);
+            [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        }
+    }
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.previewFilesDirectory error:nil] ?: @[]) {
         if ([name hasPrefix:@"source-"] || [name hasPrefix:@"install-"] || [name hasPrefix:@"import-"]) {
             [NSFileManager.defaultManager removeItemAtPath:
