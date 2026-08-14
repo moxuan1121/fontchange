@@ -1478,19 +1478,21 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             followDelta = stackPoint.x - card.center.x;
             followTransform = CGAffineTransformMakeTranslation(followDelta, 0);
             card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
+            NSMutableArray<FCFontSchemeCard *> *movedCards = [NSMutableArray array];
             for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                 if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
                 CGPoint oldCenter = [oldCenters[[NSValue valueWithNonretainedObject:otherCard]] CGPointValue];
                 CGFloat delta = oldCenter.x - otherCard.center.x;
-                if (fabs(delta) > 0.5) otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
+                if (fabs(delta) > 0.5) {
+                    otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
+                    [movedCards addObject:otherCard];
+                }
             }
-            // Let surrounding cards yield more gradually while the lifted
-            // card remains directly under the finger.
-            [UIView animateWithDuration:0.36 delay:0 usingSpringWithDamping:0.94
-                initialSpringVelocity:0.12 options:UIViewAnimationOptionCurveEaseInOut |
-                UIViewAnimationOptionBeginFromCurrentState animations:^{
-                for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
-                    if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+            // A cubic ease-in-out avoids the spring's fast initial kick. Only
+            // the cards whose slots changed participate in this transaction.
+            [UIView animateWithDuration:0.42 delay:0 options:UIViewAnimationOptionCurveEaseInOut |
+                UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
+                for (FCFontSchemeCard *otherCard in movedCards) {
                     otherCard.transform = CGAffineTransformIdentity;
                 }
             } completion:nil];
