@@ -579,7 +579,17 @@ static NSString *rebuildExternalFontsTarget(NSString *activeTarget, NSString *ac
         }
         int copyStatus = runTool(mountBindfs, @[@"--copy", @"/System/Library/Fonts"]);
         NSString *rebuiltScheme = nil;
-        NSString *rebuiltTarget = mountedFontsTarget(&rebuiltScheme);
+        NSString *rebuiltTarget = nil;
+        // mount_bindfs can return before its refreshed source is visible in
+        // the mount table. Poll briefly instead of treating that race as a
+        // failed rebuild.
+        if (copyStatus == 0) {
+            for (NSUInteger attempt = 0; attempt < 20; attempt++) {
+                rebuiltTarget = mountedFontsTarget(&rebuiltScheme);
+                if (rebuiltTarget && [rebuiltScheme hasPrefix:@"mount_bindfs"]) break;
+                usleep(100000);
+            }
+        }
         if (copyStatus != 0 || !rebuiltTarget || ![rebuiltScheme hasPrefix:@"mount_bindfs"]) {
             if (failure) *failure = [NSString stringWithFormat:@"mount_bindfs 原生字体复制失败（%d）。", copyStatus];
             return nil;
