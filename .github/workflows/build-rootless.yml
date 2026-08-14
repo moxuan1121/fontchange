@@ -1,0 +1,38 @@
+name: Build standard rootless deb
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-rootless:
+    runs-on: ubuntu-latest
+    env:
+      THEOS: ${{ github.workspace }}/theos
+      THEOS_PACKAGE_SCHEME: rootless
+      CI: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install official Theos
+        shell: bash
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos -o /tmp/install-theos
+          chmod +x /tmp/install-theos
+          /tmp/install-theos
+
+      - name: Build rootless package
+        shell: bash
+        run: make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+
+      - name: Upload rootless deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: fontchange-standard-rootless-deb
+          path: packages/*.deb
+          if-no-files-found: error

@@ -1,6 +1,11 @@
 #import <Foundation/Foundation.h>
 
+#if FONTCHANGE_ROOTLESS
+#import <rootless.h>
+#define jbroot(path) ROOT_PATH(path)
+#else
 #import <roothide.h>
+#endif
 #import <dlfcn.h>
 #import <objc/message.h>
 #import <grp.h>

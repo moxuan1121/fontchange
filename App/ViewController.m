@@ -5,7 +5,12 @@
 #import <spawn.h>
 #import <sys/wait.h>
 #import <string.h>
+#if FONTCHANGE_ROOTLESS
+#import <rootless.h>
+#define jbroot(path) ROOT_PATH(path)
+#else
 #import <roothide.h>
+#endif
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <CoreText/CoreText.h>
 
