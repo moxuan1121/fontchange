@@ -748,7 +748,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.schemeStackView.alignment = UIStackViewAlignmentFill;
     self.schemeStackView.spacing = 10;
     self.schemeStackView.layoutMarginsRelativeArrangement = YES;
-    self.schemeStackView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0, 24, 0, 24);
+    // Leave vertical room for the edit-mode jiggle and lifted drag scale so
+    // card borders are not clipped by the carousel bounds.
+    self.schemeStackView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(5, 24, 5, 24);
     [self.schemeScrollView addSubview:self.schemeStackView];
     [NSLayoutConstraint activateConstraints:@[
         [self.schemeStackView.leadingAnchor constraintEqualToAnchor:self.schemeScrollView.contentLayoutGuide.leadingAnchor],
@@ -902,7 +904,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self.restoreButton.widthAnchor constraintEqualToConstant:42],
         [self.restoreButton.heightAnchor constraintEqualToConstant:42],
         [self.mountLabel.heightAnchor constraintEqualToConstant:28],
-        [schemeCarouselContainer.heightAnchor constraintEqualToConstant:168],
+        [schemeCarouselContainer.heightAnchor constraintEqualToConstant:178],
         [self.previewView.heightAnchor constraintEqualToConstant:177],
         [self.schemePageControl.heightAnchor constraintEqualToConstant:14],
         [schemeHint.heightAnchor constraintEqualToConstant:14],
