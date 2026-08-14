@@ -652,6 +652,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (NSInteger)schemePageCount;
 - (void)updateSchemePageControlForOffset:(CGFloat)offset;
 - (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
+- (void)migratePersistentStorageIfNeeded;
 - (void)requestPreviewForSchemeID:(NSString *)schemeID
                              kind:(NSString *)kind
                            source:(NSString *)source
@@ -663,6 +664,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    [self migratePersistentStorageIfNeeded];
     NSDictionary *storedPreviewCache = [NSDictionary dictionaryWithContentsOfFile:self.previewCacheMetadataPath];
     self.schemePreviewCache = [storedPreviewCache isKindOfClass:NSDictionary.class]
         ? [storedPreviewCache mutableCopy] : [NSMutableDictionary dictionary];
@@ -994,8 +996,76 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (NSString *)importsDirectory {
+    // User-owned imports must not live below the translated jailbreak root:
+    // that mapping can change after a reboot or bootstrap recreation.
+    return @"/var/mobile/Library/Application Support/FontChange/Imports";
+}
+
+- (NSString *)legacyTranslatedStorageDirectory {
     return [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/Application Support/FontChange/Imports")];
+        jbroot("/var/mobile/Library/Application Support/FontChange")];
+}
+
+- (void)migratePersistentStorageIfNeeded {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSString *stableBase = @"/var/mobile/Library/Application Support/FontChange";
+    NSString *stableImports = [stableBase stringByAppendingPathComponent:@"Imports"];
+    NSString *legacyBase = self.legacyTranslatedStorageDirectory;
+    NSString *legacyImports = [legacyBase stringByAppendingPathComponent:@"Imports"];
+    [manager createDirectoryAtPath:stableImports withIntermediateDirectories:YES attributes:nil error:nil];
+
+    // Merge legacy files instead of deleting the old tree, so migration is
+    // recoverable if a device has unusual RootHide path translation.
+    if (![legacyBase isEqualToString:stableBase]) {
+        for (NSString *name in [manager contentsOfDirectoryAtPath:legacyImports error:nil] ?: @[]) {
+            NSString *source = [legacyImports stringByAppendingPathComponent:name];
+            NSString *destination = [stableImports stringByAppendingPathComponent:name];
+            if (![manager fileExistsAtPath:destination]) [manager copyItemAtPath:source toPath:destination error:nil];
+        }
+        for (NSString *name in @[@"Schemes.plist", @"PreviewCache.plist"]) {
+            NSString *source = [legacyBase stringByAppendingPathComponent:name];
+            NSString *destination = [stableBase stringByAppendingPathComponent:name];
+            if (![manager fileExistsAtPath:destination] && [manager fileExistsAtPath:source]) {
+                [manager copyItemAtPath:source toPath:destination error:nil];
+            }
+        }
+    }
+
+    // Stored scheme paths are absolute. Rebase any surviving legacy paths to
+    // the stable Imports directory when the corresponding file is present.
+    NSString *schemes = [stableBase stringByAppendingPathComponent:@"Schemes.plist"];
+    NSArray *storedSchemes = [NSArray arrayWithContentsOfFile:schemes];
+    NSMutableArray *repairedSchemes = [NSMutableArray array];
+    BOOL schemesChanged = NO;
+    for (NSDictionary *item in storedSchemes ?: @[]) {
+        if (![item isKindOfClass:NSDictionary.class]) continue;
+        NSMutableDictionary *scheme = item.mutableCopy;
+        for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+            NSString *oldPath = scheme[key];
+            if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+            NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
+            if ([manager fileExistsAtPath:candidate]) {
+                scheme[key] = candidate;
+                schemesChanged = YES;
+            }
+        }
+        [repairedSchemes addObject:scheme];
+    }
+    if (schemesChanged) [repairedSchemes writeToFile:schemes atomically:YES];
+
+    NSString *metadata = [stableBase stringByAppendingPathComponent:@"PreviewCache.plist"];
+    NSMutableDictionary *cache = [NSMutableDictionary dictionaryWithContentsOfFile:metadata];
+    BOOL cacheChanged = NO;
+    for (NSString *key in cache.allKeys.copy) {
+        NSString *oldPath = cache[key];
+        if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+        NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
+        if ([manager fileExistsAtPath:candidate]) {
+            cache[key] = candidate;
+            cacheChanged = YES;
+        }
+    }
+    if (cacheChanged) [cache writeToFile:metadata atomically:YES];
 }
 
 - (NSString *)schemesPath {
