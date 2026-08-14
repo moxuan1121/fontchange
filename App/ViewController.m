@@ -1189,7 +1189,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)prepareSchemePreview:(NSDictionary *)scheme forCard:(FCFontSchemeCard *)card {
     NSString *source = [scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"];
     if (!source.length) return;
-    NSString *kind = [scheme[@"primaryPath"] length] ? @"primary" : @"optional";
+    // Card samples need a Latin face for "Aa". Keep this separate from the
+    // large global preview, which intentionally uses PingFang for Chinese.
+    NSString *kind = [scheme[@"primaryPath"] length] ? @"primary-card" : @"optional";
     NSString *schemeID = [scheme[@"id"] copy];
     __weak FCFontSchemeCard *weakCard = card;
     [self requestPreviewForSchemeID:schemeID kind:kind source:source completion:^(NSString *path) {

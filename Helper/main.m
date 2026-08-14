@@ -370,6 +370,18 @@ static int preparePreview(NSString *kind, NSString *zipPath, NSString *destinati
     NSString *source = nil;
     if ([kind isEqualToString:@"primary"]) {
         source = findFileNamed(work, @"PingFang.ttc", &failure);
+    } else if ([kind isEqualToString:@"primary-card"]) {
+        // Use a short, deterministic candidate list for the card's "Aa".
+        // Do not scan every font face: malformed/large collections should not
+        // make card creation slower or less stable. No match intentionally
+        // falls back to the system font in the app.
+        NSArray<NSString *> *latinCandidates = @[
+            @"SFUI.ttf", @"SFUIRounded.ttf", @"SFUICompact.ttf", @"SFUIItalic.ttf"
+        ];
+        for (NSString *candidate in latinCandidates) {
+            source = findFileNamed(work, candidate, nil);
+            if (source) break;
+        }
     } else if ([kind isEqualToString:@"optional"]) {
         source = findOptionalSFUI(work, &failure);
     }
