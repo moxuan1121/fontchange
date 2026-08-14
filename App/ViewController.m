@@ -653,6 +653,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)updateSchemePageControlForOffset:(CGFloat)offset;
 - (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
 - (void)migratePersistentStorageIfNeeded;
+- (NSString *)resolvedPersistentImportPath:(NSString *)storedPath;
 - (void)requestPreviewForSchemeID:(NSString *)schemeID
                              kind:(NSString *)kind
                            source:(NSString *)source
@@ -1042,9 +1043,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         NSMutableDictionary *scheme = item.mutableCopy;
         for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
             NSString *oldPath = scheme[key];
-            if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+            if (!oldPath.length) continue;
             NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
-            if ([manager fileExistsAtPath:candidate]) {
+            if ([manager fileExistsAtPath:candidate] && ![oldPath isEqualToString:candidate]) {
                 scheme[key] = candidate;
                 schemesChanged = YES;
             }
@@ -1058,14 +1059,21 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     BOOL cacheChanged = NO;
     for (NSString *key in cache.allKeys.copy) {
         NSString *oldPath = cache[key];
-        if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+        if (!oldPath.length) continue;
         NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
-        if ([manager fileExistsAtPath:candidate]) {
+        if ([manager fileExistsAtPath:candidate] && ![oldPath isEqualToString:candidate]) {
             cache[key] = candidate;
             cacheChanged = YES;
         }
     }
     if (cacheChanged) [cache writeToFile:metadata atomically:YES];
+}
+
+- (NSString *)resolvedPersistentImportPath:(NSString *)storedPath {
+    if (!storedPath.length) return nil;
+    NSString *stable = [self.importsDirectory stringByAppendingPathComponent:storedPath.lastPathComponent];
+    if ([NSFileManager.defaultManager fileExistsAtPath:stable]) return stable;
+    return [NSFileManager.defaultManager fileExistsAtPath:storedPath] ? storedPath : nil;
 }
 
 - (NSString *)schemesPath {
@@ -1144,12 +1152,14 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     for (NSDictionary *item in stored ?: @[]) {
         if (![item isKindOfClass:NSDictionary.class]) continue;
         NSMutableDictionary *scheme = [item mutableCopy];
-        NSString *primary = scheme[@"primaryPath"];
-        NSString *optional = scheme[@"optionalPath"];
-        BOOL hasPrimary = primary.length && [NSFileManager.defaultManager fileExistsAtPath:primary];
-        BOOL hasOptional = optional.length && [NSFileManager.defaultManager fileExistsAtPath:optional];
-        if (!hasPrimary) [scheme removeObjectForKey:@"primaryPath"];
-        if (!hasOptional) [scheme removeObjectForKey:@"optionalPath"];
+        NSString *primary = [self resolvedPersistentImportPath:scheme[@"primaryPath"]];
+        NSString *optional = [self resolvedPersistentImportPath:scheme[@"optionalPath"]];
+        BOOL hasPrimary = primary.length > 0;
+        BOOL hasOptional = optional.length > 0;
+        if (hasPrimary) scheme[@"primaryPath"] = primary;
+        else [scheme removeObjectForKey:@"primaryPath"];
+        if (hasOptional) scheme[@"optionalPath"] = optional;
+        else [scheme removeObjectForKey:@"optionalPath"];
         if (hasPrimary || hasOptional) [self.fontSchemes addObject:scheme];
     }
     NSString *savedID = [[NSUserDefaults standardUserDefaults] stringForKey:@"FontChangeSelectedSchemeID"];
