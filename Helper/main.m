@@ -353,6 +353,44 @@ static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
     return findFileNamed(extracted, @"SFUISoft.ttc", failure);
 }
 
+static NSString *findLatinCardFont(NSString *extracted) {
+    NSInteger currentMajor = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    NSString *versionToken = [NSString stringWithFormat:@"ios%ld", (long)currentMajor];
+    NSArray<NSString *> *preferredNames = @[
+        @"sfui.ttf", @"sfuirounded.ttf", @"sfuicompact.ttf", @"sfuiitalic.ttf"
+    ];
+    NSMutableArray<NSDictionary *> *candidates = [NSMutableArray array];
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
+    for (NSString *relative in enumerator) {
+        NSString *extension = relative.pathExtension.lowercaseString;
+        if (![@[@"ttf", @"ttc", @"otf"] containsObject:extension]) continue;
+        NSString *normalized = [@"/" stringByAppendingString:
+            [[relative stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] lowercaseString]];
+        if (![normalized containsString:@"/core/"] && ![normalized containsString:@"/coreaddition/"]) continue;
+        NSString *name = relative.lastPathComponent.lowercaseString;
+        if ([name containsString:@"pingfang"] || [name containsString:@"emoji"] ||
+            [name containsString:@"symbol"] || [name containsString:@"keyboard"] ||
+            [name containsString:@"lastresort"]) continue;
+
+        NSInteger score = 0;
+        if ([preferredNames containsObject:name]) score += 1000 - (NSInteger)[preferredNames indexOfObject:name];
+        if ([normalized containsString:versionToken]) score += 200;
+        if ([normalized containsString:@"/core/"]) score += 40;
+        if ([extension isEqualToString:@"ttf"]) score += 20;
+        if ([name containsString:@"sfui"] || [name containsString:@"helvetica"] ||
+            [name containsString:@"arial"] || [name containsString:@"avenir"]) score += 100;
+        [candidates addObject:@{
+            @"path": [extracted stringByAppendingPathComponent:relative],
+            @"score": @(score)
+        }];
+    }
+    [candidates sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        NSComparisonResult scoreOrder = [right[@"score"] compare:left[@"score"]];
+        return scoreOrder != NSOrderedSame ? scoreOrder : [left[@"path"] compare:right[@"path"]];
+    }];
+    return candidates.firstObject[@"path"];
+}
+
 static int preparePreview(NSString *kind, NSString *zipPath, NSString *destination) {
     NSString *temporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [temporary stringByAppendingPathComponent:
@@ -382,6 +420,7 @@ static int preparePreview(NSString *kind, NSString *zipPath, NSString *destinati
             source = findFileNamed(work, candidate, nil);
             if (source) break;
         }
+        if (!source) source = findLatinCardFont(work);
     } else if ([kind isEqualToString:@"optional"]) {
         source = findOptionalSFUI(work, &failure);
     }

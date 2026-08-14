@@ -63,6 +63,8 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
         [self setNeedsDisplay];
         return YES;
     }
+    CFIndex bestCoverage = -1;
+    const CFIndex requiredCoverage = 2;
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         // A lock-screen font may intentionally contain only numerals. Select
@@ -72,7 +74,6 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
         UniChar *characters = calloc(length, sizeof(UniChar));
         CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
         [probe getCharacters:characters range:NSMakeRange(0, length)];
-        CFIndex bestCoverage = -1;
         for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
             CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 27.0, NULL);
@@ -339,8 +340,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         }
     }
     if (descriptors) CFRelease(descriptors);
-    if (_sampleFont) {
+    if (_sampleFont && bestCoverage == requiredCoverage) {
         [FCSchemeSampleFontCache() setObject:(__bridge id)_sampleFont forKey:path];
+    } else if (_sampleFont) {
+        CFRelease(_sampleFont);
+        _sampleFont = NULL;
     }
     [self setNeedsDisplay];
     return _sampleFont != NULL;
@@ -360,20 +364,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     };
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
         [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
-    CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-    if (width > CGRectGetWidth(rect)) {
-        CGFloat fittedSize = MAX(38.0, CTFontGetSize(font) * CGRectGetWidth(rect) / MAX(1.0, width));
-        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, fittedSize, NULL, NULL);
-        CFRelease(font);
-        font = fitted;
-        CFRelease(line);
-        attributes = @{
-            (__bridge id)kCTFontAttributeName: (__bridge id)font,
-            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
-        };
-        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-            [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
-    }
+    // Keep every card at the same 56pt sample size. This intentionally does
+    // not follow Dynamic Type or shrink wide faces to fit.
     CGContextSetTextPosition(context, 0, 9);
     CTLineDraw(line, context);
     CFRelease(line);
