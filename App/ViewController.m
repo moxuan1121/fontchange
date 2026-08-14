@@ -386,6 +386,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) UIButton *unlinkButton;
 @property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
+@property(nonatomic, strong) NSLayoutConstraint *sampleTopConstraint;
 @property(nonatomic, copy) NSString *lastFittedName;
 @property(nonatomic) CGFloat lastFittedNameWidth;
 @property(nonatomic) BOOL showsUsage;
@@ -393,6 +394,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)setSelectedAppearance:(BOOL)selected;
 - (void)setUsageAppearance:(BOOL)inUse;
 - (void)setEditingAppearance:(BOOL)editing canUnlink:(BOOL)canUnlink;
+- (void)startJiggle;
+- (void)stopJiggle;
 @end
 
 @implementation FCFontSchemeCard
@@ -404,7 +407,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.layer.cornerRadius = 18;
     self.layer.borderWidth = 1.0;
     self.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.layer.shadowOpacity = 0.06;
+    self.layer.shadowOpacity = 0;
     self.layer.shadowRadius = 8;
     self.layer.shadowOffset = CGSizeMake(0, 3);
 
@@ -460,7 +463,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     _unlinkButton.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
     _unlinkButton.tintColor = UIColor.systemOrangeColor;
     _unlinkButton.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
-    _unlinkButton.layer.cornerRadius = 10;
+    _unlinkButton.layer.cornerRadius = 9;
     _unlinkButton.hidden = YES;
     _unlinkButton.accessibilityLabel = @"从方案移除自定义锁屏时钟";
 
@@ -472,11 +475,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [self addSubview:_unlinkButton];
     _detailToBadgeConstraint = [_detailLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_usageBadge.leadingAnchor constant:-6];
     _detailToEdgeConstraint = [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12];
+    _sampleTopConstraint = [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:14];
     _detailToEdgeConstraint.active = YES;
     [NSLayoutConstraint activateConstraints:@[
         [_sampleView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_sampleView.trailingAnchor constraintEqualToAnchor:_deleteButton.leadingAnchor constant:-8],
-        [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:14],
+        _sampleTopConstraint,
         [_sampleView.heightAnchor constraintEqualToConstant:64],
         [_deleteButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
         [_deleteButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:10],
@@ -484,7 +488,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [_deleteButton.heightAnchor constraintEqualToConstant:36],
         [_nameLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
-        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:9],
+        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:6],
         [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:8],
         [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
@@ -493,9 +497,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [_usageBadge.widthAnchor constraintEqualToConstant:42],
         [_usageBadge.heightAnchor constraintEqualToConstant:18],
         [_unlinkButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
-        [_unlinkButton.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-9],
+        [_unlinkButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:7],
         [_unlinkButton.widthAnchor constraintEqualToConstant:76],
-        [_unlinkButton.heightAnchor constraintEqualToConstant:22],
+        [_unlinkButton.heightAnchor constraintEqualToConstant:20],
     ]];
     [self setSelectedAppearance:NO];
     return self;
@@ -552,9 +556,30 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)setEditingAppearance:(BOOL)editing canUnlink:(BOOL)canUnlink {
     self.unlinkButton.hidden = !(editing && canUnlink);
-    self.detailLabel.hidden = editing && canUnlink;
+    self.detailLabel.hidden = NO;
     self.usageBadge.hidden = editing || !self.showsUsage;
-    self.layer.shadowOpacity = editing ? 0.14 : 0.06;
+    self.sampleTopConstraint.constant = editing && canUnlink ? 29 : 14;
+    self.layer.shadowOpacity = 0;
+    if (editing) [self startJiggle];
+    else [self stopJiggle];
+}
+
+- (void)startJiggle {
+    if ([self.layer animationForKey:@"fontchange.jiggle"]) return;
+    CAKeyframeAnimation *rotation = [CAKeyframeAnimation animationWithKeyPath:@"transform.rotation.z"];
+    rotation.values = @[@(-0.010), @(0.010), @(-0.008)];
+    CAKeyframeAnimation *translation = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
+    translation.values = @[@(-0.45), @(0.45), @(-0.35)];
+    CAAnimationGroup *group = [CAAnimationGroup animation];
+    group.animations = @[rotation, translation];
+    group.duration = 0.17 + ((self.schemeIndex % 3) * 0.012);
+    group.repeatCount = HUGE_VALF;
+    group.beginTime = CACurrentMediaTime() + ((self.schemeIndex % 4) * 0.018);
+    [self.layer addAnimation:group forKey:@"fontchange.jiggle"];
+}
+
+- (void)stopJiggle {
+    [self.layer removeAnimationForKey:@"fontchange.jiggle"];
 }
 
 @end
@@ -683,14 +708,20 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     sectionLabel.textAlignment = NSTextAlignmentLeft;
     self.schemeEditButton = [UIButton buttonWithType:UIButtonTypeSystem];
     [self.schemeEditButton setTitle:@"完成" forState:UIControlStateNormal];
-    self.schemeEditButton.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    self.schemeEditButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     self.schemeEditButton.tintColor = UIColor.systemOrangeColor;
     self.schemeEditButton.hidden = YES;
+    self.schemeEditButton.contentEdgeInsets = UIEdgeInsetsMake(5, 7, 5, 7);
+    self.schemeEditButton.transform = CGAffineTransformMakeTranslation(0, -2.5);
     [self.schemeEditButton addTarget:self action:@selector(finishSchemeEditing) forControlEvents:UIControlEventTouchUpInside];
     UIStackView *schemeHeader = [[UIStackView alloc] initWithArrangedSubviews:@[sectionLabel, self.schemeEditButton]];
     schemeHeader.axis = UILayoutConstraintAxisHorizontal;
     schemeHeader.alignment = UIStackViewAlignmentCenter;
     schemeHeader.distribution = UIStackViewDistributionEqualSpacing;
+    [NSLayoutConstraint activateConstraints:@[
+        [self.schemeEditButton.widthAnchor constraintGreaterThanOrEqualToConstant:58],
+        [self.schemeEditButton.heightAnchor constraintEqualToConstant:34],
+    ]];
     self.previewView = [[FCFontPreviewView alloc] init];
     self.previewView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         return traits.userInterfaceStyle == UIUserInterfaceStyleDark
@@ -1378,9 +1409,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self enterSchemeEditing];
         self.draggedSchemeCard = card;
         self.schemeScrollView.scrollEnabled = NO;
+        [card stopJiggle];
         [UIView animateWithDuration:0.16 animations:^{
             card.transform = CGAffineTransformMakeScale(1.045, 1.045);
-            card.layer.shadowOpacity = 0.22;
+            card.layer.shadowOpacity = 0;
         }];
         return;
     }
@@ -1404,13 +1436,37 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             targetIndex = index;
         }
         if (currentIndex != NSNotFound && targetIndex != currentIndex) {
+            NSMutableDictionary<NSValue *, NSValue *> *oldCenters = [NSMutableDictionary dictionary];
+            for (FCFontSchemeCard *otherCard in cards) {
+                if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+                oldCenters[[NSValue valueWithNonretainedObject:otherCard]] = [NSValue valueWithCGPoint:otherCard.center];
+            }
             NSMutableDictionary *scheme = self.fontSchemes[currentIndex];
             [self.fontSchemes removeObjectAtIndex:currentIndex];
             [self.fontSchemes insertObject:scheme atIndex:targetIndex];
             [self.schemeStackView removeArrangedSubview:card];
             [self.schemeStackView insertArrangedSubview:card atIndex:targetIndex];
             [self refreshSchemeCardIndexes];
-            [UIView animateWithDuration:0.15 animations:^{ [self.schemeStackView layoutIfNeeded]; }];
+            [self.schemeStackView layoutIfNeeded];
+            for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
+                if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+                [otherCard stopJiggle];
+                CGPoint oldCenter = [oldCenters[[NSValue valueWithNonretainedObject:otherCard]] CGPointValue];
+                CGFloat delta = oldCenter.x - otherCard.center.x;
+                if (fabs(delta) > 0.5) otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
+            }
+            [UIView animateWithDuration:0.24 delay:0 options:UIViewAnimationOptionCurveEaseInOut |
+                UIViewAnimationOptionBeginFromCurrentState animations:^{
+                for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
+                    if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+                    otherCard.transform = CGAffineTransformIdentity;
+                }
+            } completion:^(__unused BOOL finished) {
+                for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
+                    if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+                    [otherCard startJiggle];
+                }
+            }];
         }
         return;
     }
@@ -1419,8 +1475,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         self.schemeScrollView.scrollEnabled = YES;
         [UIView animateWithDuration:0.18 animations:^{
             card.transform = CGAffineTransformIdentity;
-            card.layer.shadowOpacity = 0.14;
+            card.layer.shadowOpacity = 0;
         }];
+        [card startJiggle];
         self.draggedSchemeCard = nil;
         [self saveFontSchemes];
         [self updateSchemePageControl];
