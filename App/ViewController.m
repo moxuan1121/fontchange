@@ -1568,20 +1568,20 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     }
     BOOL active = [scheme[@"id"] isEqualToString:self.activeSchemeID];
     NSString *message = active
-        ? @"只修改方案配置，不会立即改变设备当前锁屏字体；“使用中”标记将清除，再次执行方案后生效。"
-        : @"只从这个方案移除自定义锁屏时钟，不会立即改变设备当前字体。";
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"从方案移除时钟"
+        ? @"解除此方案与自定义锁屏时钟的绑定，不会立即改变设备当前锁屏字体；“使用中”标记将清除，再次执行方案后生效。"
+        : @"解除此方案与自定义锁屏时钟的绑定，不会立即改变设备当前字体。";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"解除时钟绑定"
         message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     __weak typeof(self) weakSelf = self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"仅从方案移除" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [weakSelf performUnlinkClockAtIndex:index deleteFile:NO];
+    NSString *unlinkTitle = referencedElsewhere
+        ? @"解除绑定（文件仍被其他方案使用）"
+        : @"解除绑定并删除字体文件";
+    UIAlertActionStyle unlinkStyle = referencedElsewhere
+        ? UIAlertActionStyleDefault : UIAlertActionStyleDestructive;
+    [alert addAction:[UIAlertAction actionWithTitle:unlinkTitle style:unlinkStyle handler:^(__unused UIAlertAction *action) {
+        [weakSelf performUnlinkClockAtIndex:index deleteFile:!referencedElsewhere];
     }]];
-    if (!referencedElsewhere) {
-        [alert addAction:[UIAlertAction actionWithTitle:@"移除并删除文件" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-            [weakSelf performUnlinkClockAtIndex:index deleteFile:YES];
-        }]];
-    }
     [self presentViewController:alert animated:YES completion:nil];
 }
 
