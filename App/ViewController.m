@@ -404,6 +404,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self = [super init];
     if (!self) return nil;
     self.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.opaque = YES;
     self.layer.cornerRadius = 18;
     self.layer.borderWidth = 1.0;
     self.layer.shadowColor = UIColor.blackColor.CGColor;
@@ -535,9 +536,16 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)setSelectedAppearance:(BOOL)selected {
     self.layer.borderColor = (selected ? UIColor.systemOrangeColor : UIColor.separatorColor).CGColor;
     self.layer.borderWidth = selected ? 2.0 : 0.7;
+    // Keep the card surface fully opaque. An alpha-based orange background
+    // makes the content behind a lifted card show through while dragging.
     self.backgroundColor = selected
-        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.10]
+        ? [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+                ? [UIColor colorWithRed:0.20 green:0.15 blue:0.10 alpha:1.0]
+                : [UIColor colorWithRed:1.00 green:0.96 blue:0.88 alpha:1.0];
+        }]
         : UIColor.secondarySystemBackgroundColor;
+    self.alpha = 1.0;
     self.deleteButton.tintColor = selected ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
     self.deleteButton.backgroundColor = selected
         ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.10]
@@ -1413,7 +1421,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self enterSchemeEditing];
         self.draggedSchemeCard = card;
         self.schemeScrollView.scrollEnabled = NO;
-        [card stopJiggle];
+        // Jiggle and reordering both animate the layer transform. Pause the
+        // jiggle for every card for the duration of the drag so it cannot
+        // override the follow/spring transforms or trigger repeated restarts.
+        for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
+            if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
+            [schemeCard stopJiggle];
+            // Reordering now moves cached card surfaces instead of repeatedly
+            // redrawing CoreText samples and labels on every gesture update.
+            schemeCard.layer.shouldRasterize = YES;
+            schemeCard.layer.rasterizationScale = UIScreen.mainScreen.scale;
+        }
+        card.alpha = 1.0;
+        card.layer.zPosition = 100;
         [UIView animateWithDuration:0.16 animations:^{
             card.transform = CGAffineTransformMakeScale(1.045, 1.045);
             card.layer.shadowOpacity = 0;
@@ -1460,35 +1480,40 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
             for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                 if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
-                [otherCard stopJiggle];
                 CGPoint oldCenter = [oldCenters[[NSValue valueWithNonretainedObject:otherCard]] CGPointValue];
                 CGFloat delta = oldCenter.x - otherCard.center.x;
                 if (fabs(delta) > 0.5) otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
             }
-            [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.84
-                initialSpringVelocity:0.25 options:UIViewAnimationOptionCurveEaseInOut |
+            [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.88
+                initialSpringVelocity:0.35 options:UIViewAnimationOptionCurveEaseOut |
                 UIViewAnimationOptionBeginFromCurrentState animations:^{
                 for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                     if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
                     otherCard.transform = CGAffineTransformIdentity;
                 }
-            } completion:^(__unused BOOL finished) {
-                for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
-                    if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
-                    [otherCard startJiggle];
-                }
-            }];
+            } completion:nil];
         }
         return;
     }
     if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled ||
         gesture.state == UIGestureRecognizerStateFailed) {
         self.schemeScrollView.scrollEnabled = YES;
-        [UIView animateWithDuration:0.18 animations:^{
+        [UIView animateWithDuration:0.20 delay:0 options:UIViewAnimationOptionCurveEaseOut |
+            UIViewAnimationOptionBeginFromCurrentState animations:^{
             card.transform = CGAffineTransformIdentity;
             card.layer.shadowOpacity = 0;
+        } completion:^(__unused BOOL finished) {
+            card.layer.zPosition = 0;
+            card.alpha = 1.0;
+            for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
+                if ([schemeCard isKindOfClass:FCFontSchemeCard.class]) schemeCard.layer.shouldRasterize = NO;
+            }
+            if (self.schemeEditing) {
+                for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
+                    if ([schemeCard isKindOfClass:FCFontSchemeCard.class]) [schemeCard startJiggle];
+                }
+            }
         }];
-        [card startJiggle];
         self.draggedSchemeCard = nil;
         [self saveFontSchemes];
         [self updateSchemePageControl];
