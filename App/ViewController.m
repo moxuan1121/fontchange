@@ -711,7 +711,6 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.schemeEditButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
     self.schemeEditButton.tintColor = UIColor.systemOrangeColor;
     self.schemeEditButton.hidden = YES;
-    self.schemeEditButton.contentEdgeInsets = UIEdgeInsetsMake(5, 7, 5, 7);
     self.schemeEditButton.transform = CGAffineTransformMakeTranslation(0, -2.5);
     [self.schemeEditButton addTarget:self action:@selector(finishSchemeEditing) forControlEvents:UIControlEventTouchUpInside];
     UIStackView *schemeHeader = [[UIStackView alloc] initWithArrangedSubviews:@[sectionLabel, self.schemeEditButton]];
