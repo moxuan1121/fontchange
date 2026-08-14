@@ -1429,13 +1429,13 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
             if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
             [schemeCard stopJiggle];
-            // Reordering now moves cached card surfaces instead of repeatedly
-            // redrawing CoreText samples and labels on every gesture update.
-            schemeCard.layer.shouldRasterize = YES;
-            schemeCard.layer.rasterizationScale = UIScreen.mainScreen.scale;
         }
         card.alpha = 1.0;
         card.layer.zPosition = 100;
+        // Cache only the lifted card. Caching every arranged subview causes
+        // their textures to be invalidated at the exact slot-swap frame.
+        card.layer.shouldRasterize = YES;
+        card.layer.rasterizationScale = UIScreen.mainScreen.scale;
         [UIView animateWithDuration:0.16 animations:^{
             card.transform = CGAffineTransformMakeScale(1.045, 1.045);
             card.layer.shadowOpacity = 0;
@@ -1516,10 +1516,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         } completion:^(__unused BOOL finished) {
             card.layer.zPosition = 0;
             card.alpha = 1.0;
+            card.layer.shouldRasterize = NO;
             self.draggedSchemeCard = nil;
             // Adjacent cards can still be finishing their reorder springs.
-            // Keep their cached surfaces and wait briefly before replacing
-            // translation with the jiggle animation to avoid a one-frame flash.
+            // Wait briefly before replacing translation with the jiggle
+            // animation so both transforms never compete in the same frame.
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.14 * NSEC_PER_SEC)),
                 dispatch_get_main_queue(), ^{
                 if (!self.schemeEditing || self.draggedSchemeCard) return;
