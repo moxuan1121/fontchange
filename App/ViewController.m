@@ -17,36 +17,6 @@
 extern char **environ;
 typedef void (^FCPreviewCompletion)(NSString *path);
 
-static NSSet<NSString *> *FCFontArchiveExtensions(void) {
-    static NSSet<NSString *> *extensions;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        extensions = [NSSet setWithArray:@[
-            @"zip", @"zipx", @"rar", @"7z", @"tar", @"tgz", @"gz",
-            @"tbz", @"tbz2", @"bz2", @"txz", @"xz", @"tzst", @"zst",
-            @"lha", @"lzh", @"cab"
-        ]];
-    });
-    return extensions;
-}
-
-static BOOL FCIsFontArchiveExtension(NSString *extension) {
-    return [FCFontArchiveExtensions() containsObject:extension.lowercaseString];
-}
-
-static NSString *FCArchiveDisplayName(NSString *fileName) {
-    NSString *lowercase = fileName.lowercaseString;
-    NSArray<NSString *> *suffixes = @[@".tar.gz", @".tar.bz2", @".tar.xz", @".tar.zst", @".zipx",
-        @".zip", @".rar", @".7z", @".tar", @".tgz", @".tbz2", @".tbz", @".txz", @".tzst",
-        @".gz", @".bz2", @".xz", @".zst", @".lha", @".lzh", @".cab", @".ttc"];
-    for (NSString *suffix in suffixes) {
-        if ([lowercase hasSuffix:suffix] && fileName.length > suffix.length) {
-            return [fileName substringToIndex:fileName.length - suffix.length];
-        }
-    }
-    return fileName.stringByDeletingPathExtension;
-}
-
 @interface FCFontPreviewView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setDisplayName:(NSString *)name;
@@ -340,6 +310,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self setNeedsDisplay];
         return YES;
     }
+    CFIndex bestCoverage = -1;
+    const CFIndex requiredCoverage = 2;
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         NSString *probe = @"Aa";
@@ -347,7 +319,6 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         UniChar characters[8] = {0};
         CGGlyph glyphs[8] = {0};
         [probe getCharacters:characters range:NSMakeRange(0, length)];
-        CFIndex bestCoverage = -1;
         for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
             CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 56.0, NULL);
@@ -369,8 +340,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         }
     }
     if (descriptors) CFRelease(descriptors);
-    if (_sampleFont) {
+    if (_sampleFont && bestCoverage == requiredCoverage) {
         [FCSchemeSampleFontCache() setObject:(__bridge id)_sampleFont forKey:path];
+    } else if (_sampleFont) {
+        CFRelease(_sampleFont);
+        _sampleFont = NULL;
     }
     [self setNeedsDisplay];
     return _sampleFont != NULL;
@@ -390,20 +364,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     };
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
         [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
-    CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-    if (width > CGRectGetWidth(rect)) {
-        CGFloat fittedSize = MAX(38.0, CTFontGetSize(font) * CGRectGetWidth(rect) / MAX(1.0, width));
-        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, fittedSize, NULL, NULL);
-        CFRelease(font);
-        font = fitted;
-        CFRelease(line);
-        attributes = @{
-            (__bridge id)kCTFontAttributeName: (__bridge id)font,
-            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
-        };
-        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-            [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
-    }
+    // Keep every card at the same 56pt sample size. This intentionally does
+    // not follow Dynamic Type or shrink wide faces to fit.
     CGContextSetTextPosition(context, 0, 9);
     CTLineDraw(line, context);
     CFRelease(line);
@@ -421,13 +383,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) UILabel *detailLabel;
 @property(nonatomic, strong) UILabel *usageBadge;
 @property(nonatomic, strong) UIButton *deleteButton;
+@property(nonatomic, strong) UIButton *unlinkButton;
 @property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
+@property(nonatomic, strong) NSLayoutConstraint *sampleTopConstraint;
 @property(nonatomic, copy) NSString *lastFittedName;
 @property(nonatomic) CGFloat lastFittedNameWidth;
+@property(nonatomic) BOOL showsUsage;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setSelectedAppearance:(BOOL)selected;
 - (void)setUsageAppearance:(BOOL)inUse;
+- (void)setEditingAppearance:(BOOL)editing canUnlink:(BOOL)canUnlink;
+- (void)startJiggle;
+- (void)stopJiggle;
 @end
 
 @implementation FCFontSchemeCard
@@ -436,10 +404,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self = [super init];
     if (!self) return nil;
     self.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.opaque = YES;
     self.layer.cornerRadius = 18;
     self.layer.borderWidth = 1.0;
     self.layer.shadowColor = UIColor.blackColor.CGColor;
-    self.layer.shadowOpacity = 0.06;
+    self.layer.shadowOpacity = 0;
     self.layer.shadowRadius = 8;
     self.layer.shadowOffset = CGSizeMake(0, 3);
 
@@ -488,18 +457,31 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     _deleteButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.16].CGColor;
     _deleteButton.accessibilityLabel = @"删除字体方案";
 
+    _unlinkButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _unlinkButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [_unlinkButton setTitle:@"解除时钟" forState:UIControlStateNormal];
+    [_unlinkButton setImage:[UIImage systemImageNamed:@"link.badge.minus"] forState:UIControlStateNormal];
+    _unlinkButton.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+    _unlinkButton.tintColor = UIColor.systemOrangeColor;
+    _unlinkButton.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
+    _unlinkButton.layer.cornerRadius = 9;
+    _unlinkButton.hidden = YES;
+    _unlinkButton.accessibilityLabel = @"从方案移除自定义锁屏时钟";
+
     [self addSubview:_sampleView];
     [self addSubview:_nameLabel];
     [self addSubview:_detailLabel];
     [self addSubview:_usageBadge];
     [self addSubview:_deleteButton];
+    [self addSubview:_unlinkButton];
     _detailToBadgeConstraint = [_detailLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_usageBadge.leadingAnchor constant:-6];
     _detailToEdgeConstraint = [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12];
+    _sampleTopConstraint = [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:14];
     _detailToEdgeConstraint.active = YES;
     [NSLayoutConstraint activateConstraints:@[
         [_sampleView.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_sampleView.trailingAnchor constraintEqualToAnchor:_deleteButton.leadingAnchor constant:-8],
-        [_sampleView.topAnchor constraintEqualToAnchor:self.topAnchor constant:14],
+        _sampleTopConstraint,
         [_sampleView.heightAnchor constraintEqualToConstant:64],
         [_deleteButton.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-10],
         [_deleteButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:10],
@@ -507,7 +489,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [_deleteButton.heightAnchor constraintEqualToConstant:36],
         [_nameLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
-        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:9],
+        [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:6],
         [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:8],
         [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
@@ -515,6 +497,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [_usageBadge.centerYAnchor constraintEqualToAnchor:_detailLabel.centerYAnchor],
         [_usageBadge.widthAnchor constraintEqualToConstant:42],
         [_usageBadge.heightAnchor constraintEqualToConstant:18],
+        [_unlinkButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
+        [_unlinkButton.topAnchor constraintEqualToAnchor:self.topAnchor constant:7],
+        [_unlinkButton.widthAnchor constraintEqualToConstant:76],
+        [_unlinkButton.heightAnchor constraintEqualToConstant:20],
     ]];
     [self setSelectedAppearance:NO];
     return self;
@@ -550,9 +536,16 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)setSelectedAppearance:(BOOL)selected {
     self.layer.borderColor = (selected ? UIColor.systemOrangeColor : UIColor.separatorColor).CGColor;
     self.layer.borderWidth = selected ? 2.0 : 0.7;
+    // Keep the card surface fully opaque. An alpha-based orange background
+    // makes the content behind a lifted card show through while dragging.
     self.backgroundColor = selected
-        ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.10]
+        ? [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+            return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+                ? [UIColor colorWithRed:0.20 green:0.15 blue:0.10 alpha:1.0]
+                : [UIColor colorWithRed:1.00 green:0.96 blue:0.88 alpha:1.0];
+        }]
         : UIColor.secondarySystemBackgroundColor;
+    self.alpha = 1.0;
     self.deleteButton.tintColor = selected ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor;
     self.deleteButton.backgroundColor = selected
         ? [UIColor.systemOrangeColor colorWithAlphaComponent:0.10]
@@ -563,9 +556,41 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (void)setUsageAppearance:(BOOL)inUse {
+    self.showsUsage = inUse;
     self.detailToEdgeConstraint.active = !inUse;
     self.detailToBadgeConstraint.active = inUse;
     self.usageBadge.hidden = !inUse;
+}
+
+- (void)setEditingAppearance:(BOOL)editing canUnlink:(BOOL)canUnlink {
+    self.unlinkButton.hidden = !(editing && canUnlink);
+    self.detailLabel.hidden = NO;
+    self.usageBadge.hidden = editing || !self.showsUsage;
+    // Keep every card on the same baseline while editing. Combined cards use
+    // the newly opened top space for the unlink action; other cards retain it
+    // as breathing room so their Aa/name/detail positions remain aligned.
+    self.sampleTopConstraint.constant = editing ? 29 : 14;
+    self.layer.shadowOpacity = 0;
+    if (editing) [self startJiggle];
+    else [self stopJiggle];
+}
+
+- (void)startJiggle {
+    if ([self.layer animationForKey:@"fontchange.jiggle"]) return;
+    CAKeyframeAnimation *rotation = [CAKeyframeAnimation animationWithKeyPath:@"transform.rotation.z"];
+    rotation.values = @[@(-0.010), @(0.010), @(-0.008)];
+    CAKeyframeAnimation *translation = [CAKeyframeAnimation animationWithKeyPath:@"transform.translation.x"];
+    translation.values = @[@(-0.45), @(0.45), @(-0.35)];
+    CAAnimationGroup *group = [CAAnimationGroup animation];
+    group.animations = @[rotation, translation];
+    group.duration = 0.17 + ((self.schemeIndex % 3) * 0.012);
+    group.repeatCount = HUGE_VALF;
+    group.beginTime = CACurrentMediaTime() + ((self.schemeIndex % 4) * 0.018);
+    [self.layer addAnimation:group forKey:@"fontchange.jiggle"];
+}
+
+- (void)stopJiggle {
+    [self.layer removeAnimationForKey:@"fontchange.jiggle"];
 }
 
 @end
@@ -597,6 +622,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) UIScrollView *schemeScrollView;
 @property(nonatomic, strong) UIStackView *schemeStackView;
 @property(nonatomic, strong) UIPageControl *schemePageControl;
+@property(nonatomic, strong) UIButton *schemeEditButton;
 @property(nonatomic, strong) UIButton *selectedSummaryButton;
 @property(nonatomic, strong) UIButton *logButton;
 @property(nonatomic, strong) NSMutableArray<NSString *> *logEntries;
@@ -614,6 +640,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic) NSUInteger previewGeneration;
 @property(nonatomic) BOOL previewTransitioning;
 @property(nonatomic) BOOL restoringSystemFonts;
+@property(nonatomic) BOOL schemeEditing;
+@property(nonatomic, weak) FCFontSchemeCard *draggedSchemeCard;
 - (void)continueLanguageRefreshWithLanguage:(NSString *)language
                           originalLanguages:(NSArray<NSString *> *)originalLanguages;
 - (void)appendLogEntry:(NSString *)text;
@@ -624,6 +652,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (NSInteger)schemePageCount;
 - (void)updateSchemePageControlForOffset:(CGFloat)offset;
 - (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
+- (void)migratePersistentStorageIfNeeded;
 - (void)requestPreviewForSchemeID:(NSString *)schemeID
                              kind:(NSString *)kind
                            source:(NSString *)source
@@ -635,6 +664,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    [self migratePersistentStorageIfNeeded];
     NSDictionary *storedPreviewCache = [NSDictionary dictionaryWithContentsOfFile:self.previewCacheMetadataPath];
     self.schemePreviewCache = [storedPreviewCache isKindOfClass:NSDictionary.class]
         ? [storedPreviewCache mutableCopy] : [NSMutableDictionary dictionary];
@@ -689,6 +719,21 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     UILabel *sectionLabel = [self label:@"字体方案" size:22 color:UIColor.labelColor];
     sectionLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     sectionLabel.textAlignment = NSTextAlignmentLeft;
+    self.schemeEditButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.schemeEditButton setTitle:@"完成" forState:UIControlStateNormal];
+    self.schemeEditButton.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    self.schemeEditButton.tintColor = UIColor.systemOrangeColor;
+    self.schemeEditButton.hidden = YES;
+    self.schemeEditButton.transform = CGAffineTransformMakeTranslation(0, -2.5);
+    [self.schemeEditButton addTarget:self action:@selector(finishSchemeEditing) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *schemeHeader = [[UIStackView alloc] initWithArrangedSubviews:@[sectionLabel, self.schemeEditButton]];
+    schemeHeader.axis = UILayoutConstraintAxisHorizontal;
+    schemeHeader.alignment = UIStackViewAlignmentCenter;
+    schemeHeader.distribution = UIStackViewDistributionEqualSpacing;
+    [NSLayoutConstraint activateConstraints:@[
+        [self.schemeEditButton.widthAnchor constraintGreaterThanOrEqualToConstant:58],
+        [self.schemeEditButton.heightAnchor constraintEqualToConstant:34],
+    ]];
     self.previewView = [[FCFontPreviewView alloc] init];
     self.previewView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         return traits.userInterfaceStyle == UIUserInterfaceStyleDark
@@ -713,7 +758,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.schemeStackView.alignment = UIStackViewAlignmentFill;
     self.schemeStackView.spacing = 10;
     self.schemeStackView.layoutMarginsRelativeArrangement = YES;
-    self.schemeStackView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(0, 24, 0, 24);
+    // Leave vertical room for the edit-mode jiggle and lifted drag scale so
+    // card borders are not clipped by the carousel bounds.
+    self.schemeStackView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(5, 24, 5, 24);
     [self.schemeScrollView addSubview:self.schemeStackView];
     [NSLayoutConstraint activateConstraints:@[
         [self.schemeStackView.leadingAnchor constraintEqualToAnchor:self.schemeScrollView.contentLayoutGuide.leadingAnchor],
@@ -753,7 +800,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     importTitle.translatesAutoresizingMaskIntoConstraints = NO;
     importTitle.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
     importTitle.textAlignment = NSTextAlignmentLeft;
-    UILabel *importSubtitle = [self label:@"支持 ZIP、RAR、7Z 等压缩包与 TTC" size:11 color:UIColor.secondaryLabelColor];
+    UILabel *importSubtitle = [self label:@"支持 ZIP 字体包与 TTC 文件" size:11 color:UIColor.secondaryLabelColor];
     importSubtitle.translatesAutoresizingMaskIntoConstraints = NO;
     importSubtitle.textAlignment = NSTextAlignmentLeft;
     UIStackView *importText = [[UIStackView alloc] initWithArrangedSubviews:@[importTitle, importSubtitle]];
@@ -835,7 +882,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.runButton.tintColor = UIColor.systemBackgroundColor;
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        header, self.mountLabel, self.previewView, sectionLabel, schemeCarouselContainer,
+        header, self.mountLabel, self.previewView, schemeHeader, schemeCarouselContainer,
         self.schemePageControl, schemeHint, importModule, self.selectedSummaryButton, bottomSpacer, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -844,7 +891,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [stack setCustomSpacing:8 afterView:header];
     [stack setCustomSpacing:10 afterView:self.mountLabel];
     [stack setCustomSpacing:12 afterView:self.previewView];
-    [stack setCustomSpacing:5 afterView:sectionLabel];
+    [stack setCustomSpacing:5 afterView:schemeHeader];
     [stack setCustomSpacing:3 afterView:schemeCarouselContainer];
     [stack setCustomSpacing:2 afterView:self.schemePageControl];
     [stack setCustomSpacing:9 afterView:schemeHint];
@@ -867,7 +914,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self.restoreButton.widthAnchor constraintEqualToConstant:42],
         [self.restoreButton.heightAnchor constraintEqualToConstant:42],
         [self.mountLabel.heightAnchor constraintEqualToConstant:28],
-        [schemeCarouselContainer.heightAnchor constraintEqualToConstant:168],
+        [schemeCarouselContainer.heightAnchor constraintEqualToConstant:178],
         [self.previewView.heightAnchor constraintEqualToConstant:177],
         [self.schemePageControl.heightAnchor constraintEqualToConstant:14],
         [schemeHint.heightAnchor constraintEqualToConstant:14],
@@ -876,6 +923,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [bottomSpacer.heightAnchor constraintGreaterThanOrEqualToConstant:0],
         [self.runButton.heightAnchor constraintEqualToConstant:56],
     ]];
+    UITapGestureRecognizer *outsideTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSchemeOutsideTap:)];
+    outsideTap.cancelsTouchesInView = NO;
+    [self.view addGestureRecognizer:outsideTap];
     [self cleanupOldImports];
     [self loadFontSchemes];
     [self rebuildSchemeCards];
@@ -946,8 +996,76 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (NSString *)importsDirectory {
+    // User-owned imports must not live below the translated jailbreak root:
+    // that mapping can change after a reboot or bootstrap recreation.
+    return @"/var/mobile/Library/Application Support/FontChange/Imports";
+}
+
+- (NSString *)legacyTranslatedStorageDirectory {
     return [NSString stringWithUTF8String:
-        jbroot("/var/mobile/Library/Application Support/FontChange/Imports")];
+        jbroot("/var/mobile/Library/Application Support/FontChange")];
+}
+
+- (void)migratePersistentStorageIfNeeded {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSString *stableBase = @"/var/mobile/Library/Application Support/FontChange";
+    NSString *stableImports = [stableBase stringByAppendingPathComponent:@"Imports"];
+    NSString *legacyBase = self.legacyTranslatedStorageDirectory;
+    NSString *legacyImports = [legacyBase stringByAppendingPathComponent:@"Imports"];
+    [manager createDirectoryAtPath:stableImports withIntermediateDirectories:YES attributes:nil error:nil];
+
+    // Merge legacy files instead of deleting the old tree, so migration is
+    // recoverable if a device has unusual RootHide path translation.
+    if (![legacyBase isEqualToString:stableBase]) {
+        for (NSString *name in [manager contentsOfDirectoryAtPath:legacyImports error:nil] ?: @[]) {
+            NSString *source = [legacyImports stringByAppendingPathComponent:name];
+            NSString *destination = [stableImports stringByAppendingPathComponent:name];
+            if (![manager fileExistsAtPath:destination]) [manager copyItemAtPath:source toPath:destination error:nil];
+        }
+        for (NSString *name in @[@"Schemes.plist", @"PreviewCache.plist"]) {
+            NSString *source = [legacyBase stringByAppendingPathComponent:name];
+            NSString *destination = [stableBase stringByAppendingPathComponent:name];
+            if (![manager fileExistsAtPath:destination] && [manager fileExistsAtPath:source]) {
+                [manager copyItemAtPath:source toPath:destination error:nil];
+            }
+        }
+    }
+
+    // Stored scheme paths are absolute. Rebase any surviving legacy paths to
+    // the stable Imports directory when the corresponding file is present.
+    NSString *schemes = [stableBase stringByAppendingPathComponent:@"Schemes.plist"];
+    NSArray *storedSchemes = [NSArray arrayWithContentsOfFile:schemes];
+    NSMutableArray *repairedSchemes = [NSMutableArray array];
+    BOOL schemesChanged = NO;
+    for (NSDictionary *item in storedSchemes ?: @[]) {
+        if (![item isKindOfClass:NSDictionary.class]) continue;
+        NSMutableDictionary *scheme = item.mutableCopy;
+        for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+            NSString *oldPath = scheme[key];
+            if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+            NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
+            if ([manager fileExistsAtPath:candidate]) {
+                scheme[key] = candidate;
+                schemesChanged = YES;
+            }
+        }
+        [repairedSchemes addObject:scheme];
+    }
+    if (schemesChanged) [repairedSchemes writeToFile:schemes atomically:YES];
+
+    NSString *metadata = [stableBase stringByAppendingPathComponent:@"PreviewCache.plist"];
+    NSMutableDictionary *cache = [NSMutableDictionary dictionaryWithContentsOfFile:metadata];
+    BOOL cacheChanged = NO;
+    for (NSString *key in cache.allKeys.copy) {
+        NSString *oldPath = cache[key];
+        if (!oldPath.length || [manager fileExistsAtPath:oldPath]) continue;
+        NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
+        if ([manager fileExistsAtPath:candidate]) {
+            cache[key] = candidate;
+            cacheChanged = YES;
+        }
+    }
+    if (cacheChanged) [cache writeToFile:metadata atomically:YES];
 }
 
 - (NSString *)schemesPath {
@@ -1219,7 +1337,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)prepareSchemePreview:(NSDictionary *)scheme forCard:(FCFontSchemeCard *)card {
     NSString *source = [scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"];
     if (!source.length) return;
-    NSString *kind = [scheme[@"primaryPath"] length] ? @"primary" : @"optional";
+    // Card samples need a Latin face for "Aa". Keep this separate from the
+    // large global preview, which intentionally uses PingFang for Chinese.
+    NSString *kind = [scheme[@"primaryPath"] length] ? @"primary-card" : @"optional";
     NSString *schemeID = [scheme[@"id"] copy];
     __weak FCFontSchemeCard *weakCard = card;
     [self requestPreviewForSchemeID:schemeID kind:kind source:source completion:^(NSString *path) {
@@ -1264,10 +1384,17 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         card.detailLabel.minimumScaleFactor = 0.78;
         card.tag = (NSInteger)index;
         card.deleteButton.tag = (NSInteger)index;
+        card.unlinkButton.tag = (NSInteger)index;
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
         [card.deleteButton addTarget:self action:@selector(deleteSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
+        [card.unlinkButton addTarget:self action:@selector(unlinkClockFromScheme:) forControlEvents:UIControlEventTouchUpInside];
+        UILongPressGestureRecognizer *reorder = [[UILongPressGestureRecognizer alloc]
+            initWithTarget:self action:@selector(handleSchemeLongPress:)];
+        reorder.minimumPressDuration = 0.42;
+        [card addGestureRecognizer:reorder];
         [card setSelectedAppearance:selected];
         [card setUsageAppearance:[scheme[@"id"] isEqualToString:self.activeSchemeID]];
+        [card setEditingAppearance:self.schemeEditing canUnlink:(hasGlobal && hasLock)];
         [card.widthAnchor constraintEqualToConstant:150].active = YES;
         [self.schemeStackView addArrangedSubview:card];
         [self prepareSchemePreview:scheme forCard:card];
@@ -1287,6 +1414,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (void)selectSchemeCard:(FCFontSchemeCard *)card {
+    if (self.schemeEditing) return;
     if (card.schemeIndex < 0 || card.schemeIndex >= (NSInteger)self.fontSchemes.count) return;
     NSString *schemeID = self.fontSchemes[(NSUInteger)card.schemeIndex][@"id"];
     self.selectedSchemeID = schemeID;
@@ -1301,6 +1429,230 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [self scrollToSchemeIndex:card.schemeIndex animated:YES];
     self.statusLabel.text = [NSString stringWithFormat:@"已切换到“%@”；可直接预览或执行。",
         [self selectedScheme][@"name"] ?: @"字体方案"];
+}
+
+- (void)enterSchemeEditing {
+    if (self.schemeEditing) return;
+    self.schemeEditing = YES;
+    self.schemeEditButton.hidden = NO;
+    for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
+        if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
+        NSDictionary *scheme = card.schemeIndex >= 0 && card.schemeIndex < (NSInteger)self.fontSchemes.count
+            ? self.fontSchemes[(NSUInteger)card.schemeIndex] : nil;
+        [card setEditingAppearance:YES
+                        canUnlink:([scheme[@"primaryPath"] length] && [scheme[@"optionalPath"] length])];
+    }
+    UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+    [feedback impactOccurred];
+    self.statusLabel.text = @"整理模式：长按拖动排序，组合方案可解除自定义时钟。";
+}
+
+- (void)finishSchemeEditing {
+    if (!self.schemeEditing) return;
+    self.schemeEditing = NO;
+    self.schemeEditButton.hidden = YES;
+    self.schemeScrollView.scrollEnabled = YES;
+    self.draggedSchemeCard.transform = CGAffineTransformIdentity;
+    self.draggedSchemeCard = nil;
+    for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
+        if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
+        [card.layer removeAnimationForKey:@"fontchange.reorder"];
+        card.layer.shouldRasterize = NO;
+        [card setEditingAppearance:NO canUnlink:NO];
+        [card setUsageAppearance:[card.schemeID isEqualToString:self.activeSchemeID]];
+    }
+    [self saveFontSchemes];
+    [self updateSchemePageControl];
+    self.statusLabel.text = @"字体方案顺序已保存。";
+}
+
+- (void)handleSchemeOutsideTap:(UITapGestureRecognizer *)gesture {
+    if (!self.schemeEditing || self.draggedSchemeCard) return;
+    CGPoint point = [gesture locationInView:self.view];
+    if (CGRectContainsPoint([self.schemeScrollView convertRect:self.schemeScrollView.bounds toView:self.view], point)) return;
+    if (CGRectContainsPoint([self.schemeEditButton convertRect:self.schemeEditButton.bounds toView:self.view], point)) return;
+    [self finishSchemeEditing];
+}
+
+- (void)refreshSchemeCardIndexes {
+    [self.schemeStackView.arrangedSubviews enumerateObjectsUsingBlock:^(UIView *view, NSUInteger index, BOOL *stop) {
+        (void)stop;
+        if (![view isKindOfClass:FCFontSchemeCard.class]) return;
+        FCFontSchemeCard *card = (FCFontSchemeCard *)view;
+        card.schemeIndex = (NSInteger)index;
+        card.tag = (NSInteger)index;
+        card.deleteButton.tag = (NSInteger)index;
+        card.unlinkButton.tag = (NSInteger)index;
+    }];
+}
+
+- (void)handleSchemeLongPress:(UILongPressGestureRecognizer *)gesture {
+    FCFontSchemeCard *card = (FCFontSchemeCard *)gesture.view;
+    if (![card isKindOfClass:FCFontSchemeCard.class]) return;
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        [self enterSchemeEditing];
+        self.draggedSchemeCard = card;
+        self.schemeScrollView.scrollEnabled = NO;
+        // Jiggle and reordering both animate the layer transform. Pause the
+        // jiggle for every card for the duration of the drag so it cannot
+        // override the follow/spring transforms or trigger repeated restarts.
+        for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
+            if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
+            [schemeCard stopJiggle];
+        }
+        card.alpha = 1.0;
+        card.layer.zPosition = 100;
+        // Cache only the lifted card. Caching every arranged subview causes
+        // their textures to be invalidated at the exact slot-swap frame.
+        card.layer.shouldRasterize = YES;
+        card.layer.rasterizationScale = UIScreen.mainScreen.scale;
+        [UIView animateWithDuration:0.16 animations:^{
+            card.transform = CGAffineTransformMakeScale(1.045, 1.045);
+            card.layer.shadowOpacity = 0;
+        }];
+        return;
+    }
+    if (gesture.state == UIGestureRecognizerStateChanged && self.draggedSchemeCard == card) {
+        CGPoint scrollPoint = [gesture locationInView:self.schemeScrollView];
+        CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - CGRectGetWidth(self.schemeScrollView.bounds));
+        CGFloat offset = self.schemeScrollView.contentOffset.x;
+        if (scrollPoint.x < offset + 36) offset = MAX(0, offset - 8);
+        else if (scrollPoint.x > offset + CGRectGetWidth(self.schemeScrollView.bounds) - 36) offset = MIN(maxOffset, offset + 8);
+        self.schemeScrollView.contentOffset = CGPointMake(offset, 0);
+
+        CGPoint stackPoint = [gesture locationInView:self.schemeStackView];
+        CGFloat followDelta = stackPoint.x - card.center.x;
+        CGAffineTransform followTransform = CGAffineTransformMakeTranslation(followDelta, 0);
+        card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
+        NSUInteger currentIndex = [self.schemeStackView.arrangedSubviews indexOfObject:card];
+        NSUInteger targetIndex = currentIndex;
+        NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
+        for (NSUInteger index = 0; index < cards.count; index++) {
+            if (stackPoint.x < cards[index].center.x) {
+                targetIndex = index;
+                break;
+            }
+            targetIndex = index;
+        }
+        if (currentIndex != NSNotFound && targetIndex != currentIndex) {
+            NSMutableDictionary<NSValue *, NSNumber *> *oldVisualCenters = [NSMutableDictionary dictionary];
+            for (FCFontSchemeCard *otherCard in cards) {
+                if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+                CALayer *visibleLayer = otherCard.layer.presentationLayer ?: otherCard.layer;
+                oldVisualCenters[[NSValue valueWithNonretainedObject:otherCard]] = @(CGRectGetMidX(visibleLayer.frame));
+            }
+            NSMutableDictionary *scheme = self.fontSchemes[currentIndex];
+            [self.fontSchemes removeObjectAtIndex:currentIndex];
+            [self.fontSchemes insertObject:scheme atIndex:targetIndex];
+            [self.schemeStackView removeArrangedSubview:card];
+            [self.schemeStackView insertArrangedSubview:card atIndex:targetIndex];
+            [self refreshSchemeCardIndexes];
+            [self.schemeStackView layoutIfNeeded];
+            followDelta = stackPoint.x - card.center.x;
+            followTransform = CGAffineTransformMakeTranslation(followDelta, 0);
+            card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
+            for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
+                if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
+                CGFloat oldVisualX = [oldVisualCenters[[NSValue valueWithNonretainedObject:otherCard]] doubleValue];
+                CGFloat delta = oldVisualX - otherCard.layer.position.x;
+                if (fabs(delta) > 0.5) {
+                    CASpringAnimation *shift = [CASpringAnimation animationWithKeyPath:@"transform.translation.x"];
+                    shift.fromValue = @(delta);
+                    shift.toValue = @0;
+                    shift.mass = 1.0;
+                    shift.stiffness = 310.0;
+                    shift.damping = 30.0;
+                    shift.initialVelocity = 0.0;
+                    shift.duration = shift.settlingDuration;
+                    [otherCard.layer addAnimation:shift forKey:@"fontchange.reorder"];
+                }
+            }
+            UISelectionFeedbackGenerator *feedback = [[UISelectionFeedbackGenerator alloc] init];
+            [feedback selectionChanged];
+        }
+        return;
+    }
+    if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled ||
+        gesture.state == UIGestureRecognizerStateFailed) {
+        self.schemeScrollView.scrollEnabled = YES;
+        // Let the lifted card settle into its final slot with a restrained
+        // spring. BeginFromCurrentState keeps the release continuous even
+        // when the finger lets go during an in-flight reorder animation.
+        [UIView animateWithDuration:0.34 delay:0 usingSpringWithDamping:0.90
+            initialSpringVelocity:0.18 options:UIViewAnimationOptionCurveEaseOut |
+            UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
+            card.transform = CGAffineTransformIdentity;
+            card.layer.shadowOpacity = 0;
+        } completion:^(__unused BOOL finished) {
+            card.layer.zPosition = 0;
+            card.alpha = 1.0;
+            card.layer.shouldRasterize = NO;
+            self.draggedSchemeCard = nil;
+            // Adjacent cards can still be finishing their reorder springs.
+            // Wait briefly before replacing translation with the jiggle
+            // animation so both transforms never compete in the same frame.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.14 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                if (!self.schemeEditing || self.draggedSchemeCard) return;
+                for (FCFontSchemeCard *schemeCard in self.schemeStackView.arrangedSubviews) {
+                    if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
+                    [schemeCard.layer removeAnimationForKey:@"fontchange.reorder"];
+                    [schemeCard startJiggle];
+                }
+            });
+        }];
+        [self saveFontSchemes];
+        [self updateSchemePageControl];
+    }
+}
+
+- (void)performUnlinkClockAtIndex:(NSInteger)index deleteFile:(BOOL)deleteFile {
+    if (index < 0 || index >= (NSInteger)self.fontSchemes.count) return;
+    NSMutableDictionary *scheme = self.fontSchemes[(NSUInteger)index];
+    NSString *optionalPath = scheme[@"optionalPath"];
+    NSString *schemeID = scheme[@"id"];
+    [self invalidatePreviewCacheForSchemeID:schemeID];
+    [scheme removeObjectForKey:@"optionalPath"];
+    [scheme removeObjectForKey:@"optionalDisplayName"];
+    if (deleteFile && optionalPath.length) [NSFileManager.defaultManager removeItemAtPath:optionalPath error:nil];
+    if ([schemeID isEqualToString:self.activeSchemeID]) [self setActiveSchemeIDAndRefresh:nil];
+    if ([schemeID isEqualToString:self.selectedSchemeID]) [self applySelectedScheme];
+    [self saveFontSchemes];
+    [self rebuildSchemeCards];
+    self.statusLabel.text = @"已从方案移除自定义锁屏时钟；设备当前字体不会立即改变。";
+}
+
+- (void)unlinkClockFromScheme:(UIButton *)sender {
+    NSInteger index = sender.tag;
+    if (index < 0 || index >= (NSInteger)self.fontSchemes.count) return;
+    NSDictionary *scheme = self.fontSchemes[(NSUInteger)index];
+    NSString *optionalPath = scheme[@"optionalPath"];
+    if (![scheme[@"primaryPath"] length] || !optionalPath.length) return;
+    BOOL referencedElsewhere = NO;
+    for (NSUInteger otherIndex = 0; otherIndex < self.fontSchemes.count; otherIndex++) {
+        if ((NSInteger)otherIndex == index) continue;
+        if ([self.fontSchemes[otherIndex][@"optionalPath"] isEqualToString:optionalPath]) {
+            referencedElsewhere = YES;
+            break;
+        }
+    }
+    BOOL active = [scheme[@"id"] isEqualToString:self.activeSchemeID];
+    NSString *message = active
+        ? @"解除此方案与自定义锁屏时钟的绑定，不会立即改变设备当前锁屏字体；“使用中”标记将清除，再次执行方案后生效。"
+        : @"解除此方案与自定义锁屏时钟的绑定，不会立即改变设备当前字体。";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"解除时钟绑定"
+        message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    NSString *unlinkTitle = referencedElsewhere
+        ? @"解除绑定（文件仍被其他方案使用）"
+        : @"解除绑定并删除字体文件";
+    UIAlertActionStyle unlinkStyle = referencedElsewhere
+        ? UIAlertActionStyleDefault : UIAlertActionStyleDestructive;
+    [alert addAction:[UIAlertAction actionWithTitle:unlinkTitle style:unlinkStyle handler:^(__unused UIAlertAction *action) {
+        [weakSelf performUnlinkClockAtIndex:index deleteFile:!referencedElsewhere];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated {
@@ -1530,7 +1882,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
             : @"导入全局字体或建立一个仅锁屏字体方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
         preferredStyle:UIAlertControllerStyleActionSheet];
-    [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体压缩包" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+    [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体 ZIP" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self presentPickerForSlot:1];
     }]];
     if (hasCurrentScheme) {
@@ -1629,13 +1981,13 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             [self presentViewController:ttcAlert animated:YES completion:nil];
             return;
         }
-        if (!FCIsFontArchiveExtension(extension)) {
-            self.statusLabel.text = @"不支持这个文件格式，请选择字体压缩包或 TTC 文件。";
+        if (![extension isEqualToString:@"zip"]) {
+            self.statusLabel.text = @"外部导入仅支持 ZIP 或 TTC 文件。";
             return;
         }
         UIAlertController *alert = [UIAlertController
             alertControllerWithTitle:@"导入字体文件"
-                             message:@"请选择这个字体压缩包的用途。"
+                             message:@"请选择这个 ZIP 的用途。"
                       preferredStyle:UIAlertControllerStyleAlert];
         BOOL hasCurrentScheme = [self selectedScheme] != nil;
         [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
@@ -1665,11 +2017,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)presentPickerForSlot:(NSInteger)slot {
     self.pickingSlot = slot;
-    UTType *archiveType = UTTypeArchive;
-    NSArray<UTType *> *types = @[archiveType];
+    NSArray<UTType *> *types = @[UTTypeZIP];
     if (slot >= 2) {
         UTType *ttcType = [UTType typeWithFilenameExtension:@"ttc"] ?: UTTypeFont;
-        types = @[archiveType, ttcType];
+        types = @[UTTypeZIP, ttcType];
     }
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
         initForOpeningContentTypes:types asCopy:NO];
@@ -1692,12 +2043,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)importPickedURL:(NSURL *)source {
     NSString *extension = source.pathExtension.lowercaseString;
-    BOOL acceptsArchive = FCIsFontArchiveExtension(extension);
+    BOOL acceptsZIP = [extension isEqualToString:@"zip"];
     BOOL acceptsTTC = self.pickingSlot >= 2 && [extension isEqualToString:@"ttc"];
-    if (!acceptsArchive && !acceptsTTC) {
+    if (!acceptsZIP && !acceptsTTC) {
         self.statusLabel.text = self.pickingSlot == 1
-            ? @"请选择 ZIP、RAR、7Z、TAR 等字体压缩包。"
-            : @"请选择字体压缩包或单个 .ttc 文件。";
+            ? @"主要字体包必须是 .zip 文件。"
+            : @"请选择字体 ZIP 或单个 .ttc 文件。";
         return;
     }
     NSMutableDictionary *targetScheme = self.pickingSlot == 2 ? [self selectedScheme] : nil;
@@ -1734,9 +2085,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     if (self.pickingSlot == 1) {
         targetScheme = [@{
             @"id": schemeID,
-            @"name": FCArchiveDisplayName(source.lastPathComponent) ?: @"全局字体",
+            @"name": source.lastPathComponent.stringByDeletingPathExtension ?: @"全局字体",
             @"primaryPath": destination,
-            @"primaryDisplayName": FCArchiveDisplayName(source.lastPathComponent) ?: @"全局字体",
+            @"primaryDisplayName": source.lastPathComponent.stringByDeletingPathExtension ?: @"全局字体",
         } mutableCopy];
         [self.fontSchemes addObject:targetScheme];
         self.selectedSchemeID = schemeID;
@@ -1745,7 +2096,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         if (!targetScheme) {
             targetScheme = [@{
                 @"id": schemeID,
-                @"name": FCArchiveDisplayName(source.lastPathComponent) ?: @"锁屏字体",
+                @"name": source.lastPathComponent.stringByDeletingPathExtension ?: @"锁屏字体",
             } mutableCopy];
             [self.fontSchemes addObject:targetScheme];
         }
@@ -1755,7 +2106,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             [NSFileManager.defaultManager removeItemAtPath:oldOptional error:nil];
         }
         targetScheme[@"optionalPath"] = destination;
-        targetScheme[@"optionalDisplayName"] = FCArchiveDisplayName(source.lastPathComponent) ?: @"锁屏字体";
+        targetScheme[@"optionalDisplayName"] = source.lastPathComponent.stringByDeletingPathExtension ?: @"锁屏字体";
         if (![targetScheme[@"primaryPath"] length]) targetScheme[@"name"] = targetScheme[@"optionalDisplayName"];
         self.selectedSchemeID = targetScheme[@"id"];
         self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];

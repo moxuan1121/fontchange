@@ -92,9 +92,18 @@ static int FCWithKernelCredentials(int (^operation)(void)) {
 
 static int FCUnmountTarget(void) {
     if (!FCTargetIsMountPoint()) return 0;
-    return FCWithKernelCredentials(^int{
+    // Never tear down an mnt/mount_bindfs/unknown mount owned by another
+    // component. The caller can report the conflict instead of taking over.
+    if (!FCOwnMountIsActive()) return 101;
+    int status = FCWithKernelCredentials(^int{
         return unmount("/System/Library/Fonts", MNT_FORCE) == 0 ? 0 : errno;
     });
+    if (status != 0) return status;
+    for (NSUInteger attempt = 0; attempt < 20; attempt++) {
+        if (!FCTargetIsMountPoint()) return 0;
+        usleep(50000);
+    }
+    return 102;
 }
 
 static int FCDisable(void) {
@@ -107,12 +116,19 @@ static int FCDisable(void) {
 static int FCMountSnapshot(void) {
     if (FCOwnMountIsActive()) return 0;
     if (!FCValidFontTree(FCSourcePath())) return 93;
+    if (FCTargetIsMountPoint()) return 101;
     int unmountStatus = FCUnmountTarget();
     if (unmountStatus != 0) return unmountStatus;
-    return FCWithKernelCredentials(^int{
+    int status = FCWithKernelCredentials(^int{
         return mount("bindfs", "/System/Library/Fonts", MNT_RDONLY,
             (void *)FCSourcePath().fileSystemRepresentation) == 0 ? 0 : errno;
     });
+    if (status != 0) return status;
+    for (NSUInteger attempt = 0; attempt < 20; attempt++) {
+        if (FCOwnMountIsActive()) return 0;
+        usleep(50000);
+    }
+    return 99;
 }
 
 static void FCRemoveLegacyFontPathFromPlist(NSString *relativePath) {
@@ -134,7 +150,16 @@ static void FCDisableLegacyFontMounts(void) {
     FCRemoveLegacyFontPathFromPlist(@"/var/mobile/Library/Preferences/com.nan.auto-bindfs.plist");
 }
 
-static int FCCopyNativeSnapshot(BOOL replaceExisting) {
+static BOOL FCWriteEnabledMarker(void) {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSError *error = nil;
+    if (![manager createDirectoryAtPath:FCEnabledPath().stringByDeletingLastPathComponent
+             withIntermediateDirectories:YES attributes:nil error:&error]) return NO;
+    return [@"enabled" writeToFile:FCEnabledPath() atomically:YES
+                           encoding:NSUTF8StringEncoding error:&error];
+}
+
+static int FCCopyNativeSnapshot(void) {
     int unmountStatus = FCUnmountTarget();
     if (unmountStatus != 0) return unmountStatus;
 
@@ -143,50 +168,56 @@ static int FCCopyNativeSnapshot(BOOL replaceExisting) {
     NSString *base = source.stringByDeletingLastPathComponent;
     NSString *temporary = [base stringByAppendingPathComponent:
         [NSString stringWithFormat:@"Fonts.new.%@", NSUUID.UUID.UUIDString]];
+    NSString *backup = [base stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"Fonts.old.%@", NSUUID.UUID.UUIDString]];
     NSError *error = nil;
     if (![manager createDirectoryAtPath:base withIntermediateDirectories:YES attributes:nil error:&error]) return 94;
-    if (replaceExisting) [manager removeItemAtPath:source error:nil];
     [manager removeItemAtPath:temporary error:nil];
     if (![manager copyItemAtPath:@"/System/Library/Fonts" toPath:temporary error:&error]) return 95;
     if (!FCValidFontTree(temporary)) {
         [manager removeItemAtPath:temporary error:nil];
         return 96;
     }
-    if ([manager fileExistsAtPath:source] && ![manager removeItemAtPath:source error:&error]) {
-        [manager removeItemAtPath:temporary error:nil];
-        return 97;
+    BOOL hadExisting = [manager fileExistsAtPath:source];
+    if (hadExisting) {
+        [manager removeItemAtPath:backup error:nil];
+        if (![manager moveItemAtPath:source toPath:backup error:&error]) {
+            [manager removeItemAtPath:temporary error:nil];
+            return 97;
+        }
     }
     if (![manager moveItemAtPath:temporary toPath:source error:&error]) {
         [manager removeItemAtPath:temporary error:nil];
+        if (hadExisting) [manager moveItemAtPath:backup toPath:source error:nil];
         return 98;
     }
+    if (hadExisting) [manager removeItemAtPath:backup error:nil];
     return 0;
 }
 
 static int FCPrepare(void) {
     if (FCOwnMountIsActive() && FCValidFontTree(FCSourcePath())) {
+        if (!FCWriteEnabledMarker()) return 103;
         FCDisableLegacyFontMounts();
         return 0;
     }
     if (!FCValidFontTree(FCSourcePath())) {
-        int copyStatus = FCCopyNativeSnapshot(NO);
+        int copyStatus = FCCopyNativeSnapshot();
         if (copyStatus != 0) return copyStatus;
     }
     int mountStatus = FCMountSnapshot();
     if (mountStatus != 0) return mountStatus;
-    [NSFileManager.defaultManager createDirectoryAtPath:FCEnabledPath().stringByDeletingLastPathComponent
-                            withIntermediateDirectories:YES attributes:nil error:nil];
-    [@"enabled" writeToFile:FCEnabledPath() atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    if (!FCWriteEnabledMarker()) return 103;
     FCDisableLegacyFontMounts();
     return FCOwnMountIsActive() ? 0 : 99;
 }
 
 static int FCReset(void) {
-    int copyStatus = FCCopyNativeSnapshot(YES);
+    int copyStatus = FCCopyNativeSnapshot();
     if (copyStatus != 0) return copyStatus;
     int mountStatus = FCMountSnapshot();
     if (mountStatus != 0) return mountStatus;
-    [@"enabled" writeToFile:FCEnabledPath() atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    if (!FCWriteEnabledMarker()) return 103;
     FCDisableLegacyFontMounts();
     return FCOwnMountIsActive() ? 0 : 99;
 }
