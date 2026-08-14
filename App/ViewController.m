@@ -1017,10 +1017,27 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     NSString *legacyImports = [legacyBase stringByAppendingPathComponent:@"Imports"];
     [manager createDirectoryAtPath:stableImports withIntermediateDirectories:YES attributes:nil error:nil];
 
-    // Merge legacy files instead of deleting the old tree, so migration is
-    // recoverable if a device has unusual RootHide path translation.
-    if (![legacyBase isEqualToString:stableBase]) {
-        for (NSString *name in [manager contentsOfDirectoryAtPath:legacyImports error:nil] ?: @[]) {
+    // Perform the RootHide migration once and copy only source files that the
+    // scheme database actually references. Copying the whole legacy Imports
+    // directory resurrects deleted/orphaned packages on every launch.
+    NSString *migrationMarker = [stableBase stringByAppendingPathComponent:@".RootHideMigrationV2.complete"];
+    if (![legacyBase isEqualToString:stableBase] && ![manager fileExistsAtPath:migrationMarker]) {
+        NSString *stableSchemes = [stableBase stringByAppendingPathComponent:@"Schemes.plist"];
+        NSString *legacySchemes = [legacyBase stringByAppendingPathComponent:@"Schemes.plist"];
+        if (![manager fileExistsAtPath:stableSchemes] && [manager fileExistsAtPath:legacySchemes]) {
+            [manager copyItemAtPath:legacySchemes toPath:stableSchemes error:nil];
+        }
+        NSArray *migrationSchemes = [NSArray arrayWithContentsOfFile:stableSchemes];
+        NSMutableSet<NSString *> *referencedNames = [NSMutableSet set];
+        for (NSDictionary *scheme in migrationSchemes ?: @[]) {
+            if (![scheme isKindOfClass:NSDictionary.class]) continue;
+            for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+                NSString *name = [scheme[key] lastPathComponent];
+                if (name.length) [referencedNames addObject:name];
+            }
+        }
+        BOOL migrationComplete = migrationSchemes != nil;
+        for (NSString *name in referencedNames) {
             NSString *source = [legacyImports stringByAppendingPathComponent:name];
             NSString *destination = [stableImports stringByAppendingPathComponent:name];
             if (![self isUsablePersistentFile:destination] && [self isUsablePersistentFile:source]) {
@@ -1029,13 +1046,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                     [manager setAttributes:@{NSFilePosixPermissions: @0644} ofItemAtPath:destination error:nil];
                 }
             }
+            if (![self isUsablePersistentFile:destination]) migrationComplete = NO;
         }
-        for (NSString *name in @[@"Schemes.plist", @"PreviewCache.plist"]) {
-            NSString *source = [legacyBase stringByAppendingPathComponent:name];
-            NSString *destination = [stableBase stringByAppendingPathComponent:name];
-            if (![manager fileExistsAtPath:destination] && [manager fileExistsAtPath:source]) {
-                [manager copyItemAtPath:source toPath:destination error:nil];
-            }
+        if (migrationComplete) {
+            [@"complete" writeToFile:migrationMarker atomically:YES
+                              encoding:NSUTF8StringEncoding error:nil];
         }
     }
 
@@ -1131,6 +1146,25 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             NSString *path = [self.importsDirectory stringByAppendingPathComponent:name];
             FCEvictPreviewFontAtPath(path);
             [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        }
+    }
+    // Remove original ZIP/TTC files that are no longer referenced by any
+    // scheme. Never run this cleanup if the scheme database cannot be read.
+    NSArray *storedSchemes = [NSArray arrayWithContentsOfFile:self.schemesPath];
+    if (storedSchemes != nil) {
+        NSMutableSet<NSString *> *referencedNames = [NSMutableSet set];
+        for (NSDictionary *scheme in storedSchemes) {
+            if (![scheme isKindOfClass:NSDictionary.class]) continue;
+            for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+                NSString *name = [scheme[key] lastPathComponent];
+                if (name.length) [referencedNames addObject:name];
+            }
+        }
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.importsDirectory error:nil] ?: @[]) {
+            NSString *extension = name.pathExtension.lowercaseString;
+            if (![@[@"zip", @"ttc"] containsObject:extension] || [referencedNames containsObject:name]) continue;
+            [NSFileManager.defaultManager removeItemAtPath:
+                [self.importsDirectory stringByAppendingPathComponent:name] error:nil];
         }
     }
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.previewFilesDirectory error:nil] ?: @[]) {
