@@ -1484,8 +1484,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                 CGFloat delta = oldCenter.x - otherCard.center.x;
                 if (fabs(delta) > 0.5) otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
             }
-            [UIView animateWithDuration:0.22 delay:0 usingSpringWithDamping:0.88
-                initialSpringVelocity:0.35 options:UIViewAnimationOptionCurveEaseOut |
+            // Let surrounding cards yield more gradually while the lifted
+            // card remains directly under the finger.
+            [UIView animateWithDuration:0.36 delay:0 usingSpringWithDamping:0.94
+                initialSpringVelocity:0.12 options:UIViewAnimationOptionCurveEaseInOut |
                 UIViewAnimationOptionBeginFromCurrentState animations:^{
                 for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                     if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
