@@ -383,13 +383,16 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) UILabel *detailLabel;
 @property(nonatomic, strong) UILabel *usageBadge;
 @property(nonatomic, strong) UIButton *deleteButton;
+@property(nonatomic, strong) UIButton *unlinkButton;
 @property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
 @property(nonatomic, copy) NSString *lastFittedName;
 @property(nonatomic) CGFloat lastFittedNameWidth;
+@property(nonatomic) BOOL showsUsage;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setSelectedAppearance:(BOOL)selected;
 - (void)setUsageAppearance:(BOOL)inUse;
+- (void)setEditingAppearance:(BOOL)editing canUnlink:(BOOL)canUnlink;
 @end
 
 @implementation FCFontSchemeCard
@@ -450,11 +453,23 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     _deleteButton.layer.borderColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.16].CGColor;
     _deleteButton.accessibilityLabel = @"删除字体方案";
 
+    _unlinkButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _unlinkButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [_unlinkButton setTitle:@"解除时钟" forState:UIControlStateNormal];
+    [_unlinkButton setImage:[UIImage systemImageNamed:@"link.badge.minus"] forState:UIControlStateNormal];
+    _unlinkButton.titleLabel.font = [UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+    _unlinkButton.tintColor = UIColor.systemOrangeColor;
+    _unlinkButton.backgroundColor = [UIColor.systemOrangeColor colorWithAlphaComponent:0.10];
+    _unlinkButton.layer.cornerRadius = 10;
+    _unlinkButton.hidden = YES;
+    _unlinkButton.accessibilityLabel = @"从方案移除自定义锁屏时钟";
+
     [self addSubview:_sampleView];
     [self addSubview:_nameLabel];
     [self addSubview:_detailLabel];
     [self addSubview:_usageBadge];
     [self addSubview:_deleteButton];
+    [self addSubview:_unlinkButton];
     _detailToBadgeConstraint = [_detailLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_usageBadge.leadingAnchor constant:-6];
     _detailToEdgeConstraint = [_detailLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12];
     _detailToEdgeConstraint.active = YES;
@@ -477,6 +492,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [_usageBadge.centerYAnchor constraintEqualToAnchor:_detailLabel.centerYAnchor],
         [_usageBadge.widthAnchor constraintEqualToConstant:42],
         [_usageBadge.heightAnchor constraintEqualToConstant:18],
+        [_unlinkButton.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:14],
+        [_unlinkButton.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-9],
+        [_unlinkButton.widthAnchor constraintEqualToConstant:76],
+        [_unlinkButton.heightAnchor constraintEqualToConstant:22],
     ]];
     [self setSelectedAppearance:NO];
     return self;
@@ -525,9 +544,17 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (void)setUsageAppearance:(BOOL)inUse {
+    self.showsUsage = inUse;
     self.detailToEdgeConstraint.active = !inUse;
     self.detailToBadgeConstraint.active = inUse;
     self.usageBadge.hidden = !inUse;
+}
+
+- (void)setEditingAppearance:(BOOL)editing canUnlink:(BOOL)canUnlink {
+    self.unlinkButton.hidden = !(editing && canUnlink);
+    self.detailLabel.hidden = editing && canUnlink;
+    self.usageBadge.hidden = editing || !self.showsUsage;
+    self.layer.shadowOpacity = editing ? 0.14 : 0.06;
 }
 
 @end
@@ -559,6 +586,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) UIScrollView *schemeScrollView;
 @property(nonatomic, strong) UIStackView *schemeStackView;
 @property(nonatomic, strong) UIPageControl *schemePageControl;
+@property(nonatomic, strong) UIButton *schemeEditButton;
 @property(nonatomic, strong) UIButton *selectedSummaryButton;
 @property(nonatomic, strong) UIButton *logButton;
 @property(nonatomic, strong) NSMutableArray<NSString *> *logEntries;
@@ -576,6 +604,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic) NSUInteger previewGeneration;
 @property(nonatomic) BOOL previewTransitioning;
 @property(nonatomic) BOOL restoringSystemFonts;
+@property(nonatomic) BOOL schemeEditing;
+@property(nonatomic, weak) FCFontSchemeCard *draggedSchemeCard;
 - (void)continueLanguageRefreshWithLanguage:(NSString *)language
                           originalLanguages:(NSArray<NSString *> *)originalLanguages;
 - (void)appendLogEntry:(NSString *)text;
@@ -651,6 +681,16 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     UILabel *sectionLabel = [self label:@"字体方案" size:22 color:UIColor.labelColor];
     sectionLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     sectionLabel.textAlignment = NSTextAlignmentLeft;
+    self.schemeEditButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [self.schemeEditButton setTitle:@"完成" forState:UIControlStateNormal];
+    self.schemeEditButton.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    self.schemeEditButton.tintColor = UIColor.systemOrangeColor;
+    self.schemeEditButton.hidden = YES;
+    [self.schemeEditButton addTarget:self action:@selector(finishSchemeEditing) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *schemeHeader = [[UIStackView alloc] initWithArrangedSubviews:@[sectionLabel, self.schemeEditButton]];
+    schemeHeader.axis = UILayoutConstraintAxisHorizontal;
+    schemeHeader.alignment = UIStackViewAlignmentCenter;
+    schemeHeader.distribution = UIStackViewDistributionEqualSpacing;
     self.previewView = [[FCFontPreviewView alloc] init];
     self.previewView.backgroundColor = [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         return traits.userInterfaceStyle == UIUserInterfaceStyleDark
@@ -797,7 +837,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.runButton.tintColor = UIColor.systemBackgroundColor;
     [self.runButton setImage:[UIImage systemImageNamed:@"checkmark.circle.fill"] forState:UIControlStateNormal];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
-        header, self.mountLabel, self.previewView, sectionLabel, schemeCarouselContainer,
+        header, self.mountLabel, self.previewView, schemeHeader, schemeCarouselContainer,
         self.schemePageControl, schemeHint, importModule, self.selectedSummaryButton, bottomSpacer, self.runButton
     ]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -806,7 +846,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [stack setCustomSpacing:8 afterView:header];
     [stack setCustomSpacing:10 afterView:self.mountLabel];
     [stack setCustomSpacing:12 afterView:self.previewView];
-    [stack setCustomSpacing:5 afterView:sectionLabel];
+    [stack setCustomSpacing:5 afterView:schemeHeader];
     [stack setCustomSpacing:3 afterView:schemeCarouselContainer];
     [stack setCustomSpacing:2 afterView:self.schemePageControl];
     [stack setCustomSpacing:9 afterView:schemeHint];
@@ -838,6 +878,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [bottomSpacer.heightAnchor constraintGreaterThanOrEqualToConstant:0],
         [self.runButton.heightAnchor constraintEqualToConstant:56],
     ]];
+    UITapGestureRecognizer *outsideTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSchemeOutsideTap:)];
+    outsideTap.cancelsTouchesInView = NO;
+    [self.view addGestureRecognizer:outsideTap];
     [self cleanupOldImports];
     [self loadFontSchemes];
     [self rebuildSchemeCards];
@@ -1228,10 +1271,17 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         card.detailLabel.minimumScaleFactor = 0.78;
         card.tag = (NSInteger)index;
         card.deleteButton.tag = (NSInteger)index;
+        card.unlinkButton.tag = (NSInteger)index;
         [card addTarget:self action:@selector(selectSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
         [card.deleteButton addTarget:self action:@selector(deleteSchemeCard:) forControlEvents:UIControlEventTouchUpInside];
+        [card.unlinkButton addTarget:self action:@selector(unlinkClockFromScheme:) forControlEvents:UIControlEventTouchUpInside];
+        UILongPressGestureRecognizer *reorder = [[UILongPressGestureRecognizer alloc]
+            initWithTarget:self action:@selector(handleSchemeLongPress:)];
+        reorder.minimumPressDuration = 0.42;
+        [card addGestureRecognizer:reorder];
         [card setSelectedAppearance:selected];
         [card setUsageAppearance:[scheme[@"id"] isEqualToString:self.activeSchemeID]];
+        [card setEditingAppearance:self.schemeEditing canUnlink:(hasGlobal && hasLock)];
         [card.widthAnchor constraintEqualToConstant:150].active = YES;
         [self.schemeStackView addArrangedSubview:card];
         [self prepareSchemePreview:scheme forCard:card];
@@ -1251,6 +1301,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (void)selectSchemeCard:(FCFontSchemeCard *)card {
+    if (self.schemeEditing) return;
     if (card.schemeIndex < 0 || card.schemeIndex >= (NSInteger)self.fontSchemes.count) return;
     NSString *schemeID = self.fontSchemes[(NSUInteger)card.schemeIndex][@"id"];
     self.selectedSchemeID = schemeID;
@@ -1265,6 +1316,164 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [self scrollToSchemeIndex:card.schemeIndex animated:YES];
     self.statusLabel.text = [NSString stringWithFormat:@"已切换到“%@”；可直接预览或执行。",
         [self selectedScheme][@"name"] ?: @"字体方案"];
+}
+
+- (void)enterSchemeEditing {
+    if (self.schemeEditing) return;
+    self.schemeEditing = YES;
+    self.schemeEditButton.hidden = NO;
+    for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
+        if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
+        NSDictionary *scheme = card.schemeIndex >= 0 && card.schemeIndex < (NSInteger)self.fontSchemes.count
+            ? self.fontSchemes[(NSUInteger)card.schemeIndex] : nil;
+        [card setEditingAppearance:YES
+                        canUnlink:([scheme[@"primaryPath"] length] && [scheme[@"optionalPath"] length])];
+    }
+    UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+    [feedback impactOccurred];
+    self.statusLabel.text = @"整理模式：长按拖动排序，组合方案可解除自定义时钟。";
+}
+
+- (void)finishSchemeEditing {
+    if (!self.schemeEditing) return;
+    self.schemeEditing = NO;
+    self.schemeEditButton.hidden = YES;
+    self.schemeScrollView.scrollEnabled = YES;
+    self.draggedSchemeCard.transform = CGAffineTransformIdentity;
+    self.draggedSchemeCard = nil;
+    for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
+        if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
+        [card setEditingAppearance:NO canUnlink:NO];
+        [card setUsageAppearance:[card.schemeID isEqualToString:self.activeSchemeID]];
+    }
+    [self saveFontSchemes];
+    [self updateSchemePageControl];
+    self.statusLabel.text = @"字体方案顺序已保存。";
+}
+
+- (void)handleSchemeOutsideTap:(UITapGestureRecognizer *)gesture {
+    if (!self.schemeEditing || self.draggedSchemeCard) return;
+    CGPoint point = [gesture locationInView:self.view];
+    if (CGRectContainsPoint([self.schemeScrollView convertRect:self.schemeScrollView.bounds toView:self.view], point)) return;
+    if (CGRectContainsPoint([self.schemeEditButton convertRect:self.schemeEditButton.bounds toView:self.view], point)) return;
+    [self finishSchemeEditing];
+}
+
+- (void)refreshSchemeCardIndexes {
+    [self.schemeStackView.arrangedSubviews enumerateObjectsUsingBlock:^(UIView *view, NSUInteger index, BOOL *stop) {
+        (void)stop;
+        if (![view isKindOfClass:FCFontSchemeCard.class]) return;
+        FCFontSchemeCard *card = (FCFontSchemeCard *)view;
+        card.schemeIndex = (NSInteger)index;
+        card.tag = (NSInteger)index;
+        card.deleteButton.tag = (NSInteger)index;
+        card.unlinkButton.tag = (NSInteger)index;
+    }];
+}
+
+- (void)handleSchemeLongPress:(UILongPressGestureRecognizer *)gesture {
+    FCFontSchemeCard *card = (FCFontSchemeCard *)gesture.view;
+    if (![card isKindOfClass:FCFontSchemeCard.class]) return;
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        [self enterSchemeEditing];
+        self.draggedSchemeCard = card;
+        self.schemeScrollView.scrollEnabled = NO;
+        [UIView animateWithDuration:0.16 animations:^{
+            card.transform = CGAffineTransformMakeScale(1.045, 1.045);
+            card.layer.shadowOpacity = 0.22;
+        }];
+        return;
+    }
+    if (gesture.state == UIGestureRecognizerStateChanged && self.draggedSchemeCard == card) {
+        CGPoint scrollPoint = [gesture locationInView:self.schemeScrollView];
+        CGFloat maxOffset = MAX(0, self.schemeScrollView.contentSize.width - CGRectGetWidth(self.schemeScrollView.bounds));
+        CGFloat offset = self.schemeScrollView.contentOffset.x;
+        if (scrollPoint.x < offset + 36) offset = MAX(0, offset - 8);
+        else if (scrollPoint.x > offset + CGRectGetWidth(self.schemeScrollView.bounds) - 36) offset = MIN(maxOffset, offset + 8);
+        self.schemeScrollView.contentOffset = CGPointMake(offset, 0);
+
+        CGPoint stackPoint = [gesture locationInView:self.schemeStackView];
+        NSUInteger currentIndex = [self.schemeStackView.arrangedSubviews indexOfObject:card];
+        NSUInteger targetIndex = currentIndex;
+        NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
+        for (NSUInteger index = 0; index < cards.count; index++) {
+            if (stackPoint.x < CGRectGetMidX(cards[index].frame)) {
+                targetIndex = index;
+                break;
+            }
+            targetIndex = index;
+        }
+        if (currentIndex != NSNotFound && targetIndex != currentIndex) {
+            NSMutableDictionary *scheme = self.fontSchemes[currentIndex];
+            [self.fontSchemes removeObjectAtIndex:currentIndex];
+            [self.fontSchemes insertObject:scheme atIndex:targetIndex];
+            [self.schemeStackView removeArrangedSubview:card];
+            [self.schemeStackView insertArrangedSubview:card atIndex:targetIndex];
+            [self refreshSchemeCardIndexes];
+            [UIView animateWithDuration:0.15 animations:^{ [self.schemeStackView layoutIfNeeded]; }];
+        }
+        return;
+    }
+    if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled ||
+        gesture.state == UIGestureRecognizerStateFailed) {
+        self.schemeScrollView.scrollEnabled = YES;
+        [UIView animateWithDuration:0.18 animations:^{
+            card.transform = CGAffineTransformIdentity;
+            card.layer.shadowOpacity = 0.14;
+        }];
+        self.draggedSchemeCard = nil;
+        [self saveFontSchemes];
+        [self updateSchemePageControl];
+    }
+}
+
+- (void)performUnlinkClockAtIndex:(NSInteger)index deleteFile:(BOOL)deleteFile {
+    if (index < 0 || index >= (NSInteger)self.fontSchemes.count) return;
+    NSMutableDictionary *scheme = self.fontSchemes[(NSUInteger)index];
+    NSString *optionalPath = scheme[@"optionalPath"];
+    NSString *schemeID = scheme[@"id"];
+    [self invalidatePreviewCacheForSchemeID:schemeID];
+    [scheme removeObjectForKey:@"optionalPath"];
+    [scheme removeObjectForKey:@"optionalDisplayName"];
+    if (deleteFile && optionalPath.length) [NSFileManager.defaultManager removeItemAtPath:optionalPath error:nil];
+    if ([schemeID isEqualToString:self.activeSchemeID]) [self setActiveSchemeIDAndRefresh:nil];
+    if ([schemeID isEqualToString:self.selectedSchemeID]) [self applySelectedScheme];
+    [self saveFontSchemes];
+    [self rebuildSchemeCards];
+    self.statusLabel.text = @"已从方案移除自定义锁屏时钟；设备当前字体不会立即改变。";
+}
+
+- (void)unlinkClockFromScheme:(UIButton *)sender {
+    NSInteger index = sender.tag;
+    if (index < 0 || index >= (NSInteger)self.fontSchemes.count) return;
+    NSDictionary *scheme = self.fontSchemes[(NSUInteger)index];
+    NSString *optionalPath = scheme[@"optionalPath"];
+    if (![scheme[@"primaryPath"] length] || !optionalPath.length) return;
+    BOOL referencedElsewhere = NO;
+    for (NSUInteger otherIndex = 0; otherIndex < self.fontSchemes.count; otherIndex++) {
+        if ((NSInteger)otherIndex == index) continue;
+        if ([self.fontSchemes[otherIndex][@"optionalPath"] isEqualToString:optionalPath]) {
+            referencedElsewhere = YES;
+            break;
+        }
+    }
+    BOOL active = [scheme[@"id"] isEqualToString:self.activeSchemeID];
+    NSString *message = active
+        ? @"只修改方案配置，不会立即改变设备当前锁屏字体；“使用中”标记将清除，再次执行方案后生效。"
+        : @"只从这个方案移除自定义锁屏时钟，不会立即改变设备当前字体。";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"从方案移除时钟"
+        message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"仅从方案移除" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [weakSelf performUnlinkClockAtIndex:index deleteFile:NO];
+    }]];
+    if (!referencedElsewhere) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"移除并删除文件" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+            [weakSelf performUnlinkClockAtIndex:index deleteFile:YES];
+        }]];
+    }
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated {
