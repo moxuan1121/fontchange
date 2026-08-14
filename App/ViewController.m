@@ -558,7 +558,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.unlinkButton.hidden = !(editing && canUnlink);
     self.detailLabel.hidden = NO;
     self.usageBadge.hidden = editing || !self.showsUsage;
-    self.sampleTopConstraint.constant = editing && canUnlink ? 29 : 14;
+    // Keep every card on the same baseline while editing. Combined cards use
+    // the newly opened top space for the unlink action; other cards retain it
+    // as breathing room so their Aa/name/detail positions remain aligned.
+    self.sampleTopConstraint.constant = editing ? 29 : 14;
     self.layer.shadowOpacity = 0;
     if (editing) [self startJiggle];
     else [self stopJiggle];
@@ -1424,11 +1427,14 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         self.schemeScrollView.contentOffset = CGPointMake(offset, 0);
 
         CGPoint stackPoint = [gesture locationInView:self.schemeStackView];
+        CGFloat followDelta = stackPoint.x - card.center.x;
+        CGAffineTransform followTransform = CGAffineTransformMakeTranslation(followDelta, 0);
+        card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
         NSUInteger currentIndex = [self.schemeStackView.arrangedSubviews indexOfObject:card];
         NSUInteger targetIndex = currentIndex;
         NSArray<UIView *> *cards = self.schemeStackView.arrangedSubviews;
         for (NSUInteger index = 0; index < cards.count; index++) {
-            if (stackPoint.x < CGRectGetMidX(cards[index].frame)) {
+            if (stackPoint.x < cards[index].center.x) {
                 targetIndex = index;
                 break;
             }
@@ -1447,6 +1453,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             [self.schemeStackView insertArrangedSubview:card atIndex:targetIndex];
             [self refreshSchemeCardIndexes];
             [self.schemeStackView layoutIfNeeded];
+            followDelta = stackPoint.x - card.center.x;
+            followTransform = CGAffineTransformMakeTranslation(followDelta, 0);
+            card.transform = CGAffineTransformScale(followTransform, 1.045, 1.045);
             for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                 if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
                 [otherCard stopJiggle];
@@ -1454,7 +1463,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                 CGFloat delta = oldCenter.x - otherCard.center.x;
                 if (fabs(delta) > 0.5) otherCard.transform = CGAffineTransformMakeTranslation(delta, 0);
             }
-            [UIView animateWithDuration:0.24 delay:0 options:UIViewAnimationOptionCurveEaseInOut |
+            [UIView animateWithDuration:0.28 delay:0 usingSpringWithDamping:0.84
+                initialSpringVelocity:0.25 options:UIViewAnimationOptionCurveEaseInOut |
                 UIViewAnimationOptionBeginFromCurrentState animations:^{
                 for (FCFontSchemeCard *otherCard in self.schemeStackView.arrangedSubviews) {
                     if (![otherCard isKindOfClass:FCFontSchemeCard.class] || otherCard == card) continue;
