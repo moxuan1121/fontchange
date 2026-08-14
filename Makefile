@@ -6,6 +6,7 @@ THEOS_PACKAGE_SCHEME ?= roothide
 
 ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
 FONTCHANGE_SCHEME_CFLAGS = -DFONTCHANGE_ROOTLESS=1
+THEOS_LAYOUT_DIR = $(THEOS_PROJECT_DIR)/layout-rootless
 endif
 
 include $(THEOS)/makefiles/common.mk
