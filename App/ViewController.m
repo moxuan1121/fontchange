@@ -1498,8 +1498,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled ||
         gesture.state == UIGestureRecognizerStateFailed) {
         self.schemeScrollView.scrollEnabled = YES;
-        [UIView animateWithDuration:0.20 delay:0 options:UIViewAnimationOptionCurveEaseOut |
-            UIViewAnimationOptionBeginFromCurrentState animations:^{
+        // Let the lifted card settle into its final slot with a restrained
+        // spring. BeginFromCurrentState keeps the release continuous even
+        // when the finger lets go during an in-flight reorder animation.
+        [UIView animateWithDuration:0.34 delay:0 usingSpringWithDamping:0.90
+            initialSpringVelocity:0.18 options:UIViewAnimationOptionCurveEaseOut |
+            UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
             card.transform = CGAffineTransformIdentity;
             card.layer.shadowOpacity = 0;
         } completion:^(__unused BOOL finished) {
@@ -1513,8 +1517,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                     if ([schemeCard isKindOfClass:FCFontSchemeCard.class]) [schemeCard startJiggle];
                 }
             }
+            self.draggedSchemeCard = nil;
         }];
-        self.draggedSchemeCard = nil;
         [self saveFontSchemes];
         [self updateSchemePageControl];
     }
