@@ -17,6 +17,11 @@
 extern char **environ;
 typedef void (^FCPreviewCompletion)(NSString *path);
 
+static BOOL FCIsSupportedImportExtension(NSString *extension, BOOL allowsTTC) {
+    if ([extension isEqualToString:@"zip"]) return YES;
+    return allowsTTC && [extension isEqualToString:@"ttc"];
+}
+
 @interface FCFontPreviewView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setDisplayName:(NSString *)name;
@@ -1031,7 +1036,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         NSMutableSet<NSString *> *referencedNames = [NSMutableSet set];
         for (NSDictionary *scheme in migrationSchemes ?: @[]) {
             if (![scheme isKindOfClass:NSDictionary.class]) continue;
-            for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+            for (NSString *key in @[@"primaryPath", @"optionalPath", @"customChinesePath", @"customLatinPath"]) {
                 NSString *name = [scheme[key] lastPathComponent];
                 if (name.length) [referencedNames addObject:name];
             }
@@ -1063,7 +1068,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     for (NSDictionary *item in storedSchemes ?: @[]) {
         if (![item isKindOfClass:NSDictionary.class]) continue;
         NSMutableDictionary *scheme = item.mutableCopy;
-        for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+        for (NSString *key in @[@"primaryPath", @"optionalPath", @"customChinesePath", @"customLatinPath"]) {
             NSString *oldPath = scheme[key];
             if (!oldPath.length) continue;
             NSString *candidate = [stableImports stringByAppendingPathComponent:oldPath.lastPathComponent];
@@ -1155,7 +1160,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         NSMutableSet<NSString *> *referencedNames = [NSMutableSet set];
         for (NSDictionary *scheme in storedSchemes) {
             if (![scheme isKindOfClass:NSDictionary.class]) continue;
-            for (NSString *key in @[@"primaryPath", @"optionalPath"]) {
+            for (NSString *key in @[@"primaryPath", @"optionalPath", @"customChinesePath", @"customLatinPath"]) {
                 NSString *name = [scheme[key] lastPathComponent];
                 if (name.length) [referencedNames addObject:name];
             }
@@ -1231,13 +1236,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         NSMutableDictionary *scheme = [item mutableCopy];
         NSString *primary = [self resolvedPersistentImportPath:scheme[@"primaryPath"]];
         NSString *optional = [self resolvedPersistentImportPath:scheme[@"optionalPath"]];
+        NSString *customChinese = [self resolvedPersistentImportPath:scheme[@"customChinesePath"]];
+        NSString *customLatin = [self resolvedPersistentImportPath:scheme[@"customLatinPath"]];
         BOOL hasPrimary = primary.length > 0;
         BOOL hasOptional = optional.length > 0;
         if (hasPrimary) scheme[@"primaryPath"] = primary;
         else [scheme removeObjectForKey:@"primaryPath"];
         if (hasOptional) scheme[@"optionalPath"] = optional;
         else [scheme removeObjectForKey:@"optionalPath"];
-        if (hasPrimary || hasOptional) [self.fontSchemes addObject:scheme];
+        if (customChinese.length) scheme[@"customChinesePath"] = customChinese;
+        else [scheme removeObjectForKey:@"customChinesePath"];
+        if (customLatin.length) scheme[@"customLatinPath"] = customLatin;
+        else [scheme removeObjectForKey:@"customLatinPath"];
+        if (hasPrimary || hasOptional || customChinese.length || customLatin.length) [self.fontSchemes addObject:scheme];
     }
     NSString *savedID = [[NSUserDefaults standardUserDefaults] stringForKey:@"FontChangeSelectedSchemeID"];
     BOOL found = NO;
@@ -1979,9 +1990,18 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [alert addAction:[UIAlertAction actionWithTitle:@"删除" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
         NSString *primary = scheme[@"primaryPath"];
         NSString *optional = scheme[@"optionalPath"];
+        NSString *customChinese = scheme[@"customChinesePath"];
+        NSString *customLatin = scheme[@"customLatinPath"];
         [weakSelf invalidatePreviewCacheForSchemeID:scheme[@"id"]];
         if (primary.length) [NSFileManager.defaultManager removeItemAtPath:primary error:nil];
         if (optional.length && ![optional isEqualToString:primary]) [NSFileManager.defaultManager removeItemAtPath:optional error:nil];
+        if (customChinese.length && ![customChinese isEqualToString:primary] && ![customChinese isEqualToString:optional]) {
+            [NSFileManager.defaultManager removeItemAtPath:customChinese error:nil];
+        }
+        if (customLatin.length && ![customLatin isEqualToString:primary] &&
+            ![customLatin isEqualToString:optional] && ![customLatin isEqualToString:customChinese]) {
+            [NSFileManager.defaultManager removeItemAtPath:customLatin error:nil];
+        }
         [weakSelf.fontSchemes removeObjectAtIndex:(NSUInteger)index];
         weakSelf.selectedSchemeID = [weakSelf.fontSchemes.firstObject objectForKey:@"id"];
         [weakSelf applySelectedScheme];
@@ -2142,8 +2162,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.pickingSlot = slot;
     NSArray<UTType *> *types = @[UTTypeZIP];
     if (slot >= 2) {
-        UTType *ttcType = [UTType typeWithFilenameExtension:@"ttc"] ?: UTTypeFont;
-        types = @[UTTypeZIP, ttcType];
+        UTType *ttcType = [UTType typeWithFilenameExtension:@"ttc"];
+        if (ttcType) types = @[UTTypeZIP, ttcType];
     }
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
         initForOpeningContentTypes:types asCopy:NO];
@@ -2166,9 +2186,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)importPickedURL:(NSURL *)source {
     NSString *extension = source.pathExtension.lowercaseString;
-    BOOL acceptsZIP = [extension isEqualToString:@"zip"];
-    BOOL acceptsTTC = (self.pickingSlot >= 2 && self.pickingSlot <= 5) && [extension isEqualToString:@"ttc"];
-    if (!acceptsZIP && !acceptsTTC) {
+    BOOL allowsTTC = self.pickingSlot >= 2 && self.pickingSlot <= 5;
+    if (!FCIsSupportedImportExtension(extension, allowsTTC)) {
         self.statusLabel.text = self.pickingSlot == 1
             ? @"主要字体包必须是 .zip 文件。"
             : @"请选择字体 ZIP 或单个 .ttc 文件。";

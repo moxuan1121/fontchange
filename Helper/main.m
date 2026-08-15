@@ -398,7 +398,7 @@ static NSString *findLatinCardFont(NSString *extracted) {
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
     for (NSString *relative in enumerator) {
         NSString *extension = relative.pathExtension.lowercaseString;
-        if (![@[@"ttf", @"ttc", @"otf"] containsObject:extension]) continue;
+        if (![@[@"ttf", @"ttc"] containsObject:extension]) continue;
         NSString *normalized = [@"/" stringByAppendingString:
             [[relative stringByReplacingOccurrencesOfString:@"\\" withString:@"/"] lowercaseString]];
         if (![normalized containsString:@"/core/"] && ![normalized containsString:@"/coreaddition/"]) continue;
