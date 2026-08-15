@@ -366,33 +366,64 @@ static NSString *findOptionalClockFont(NSString *extracted, NSString **failure) 
 }
 
 static BOOL isChineseFontKey(NSString *key) {
+    if (!key || key.length == 0) return NO;
     NSString *name = key.lowercaseString;
-    NSArray<NSString *> *tokens = @[
-        @"pingfang", @"heiti", @"hiragino", @"song", @"kaiti", @"yahei",
-        @"simhei", @"simsun", @"sourcehan", @"noto", @"wawati", @"xingkai",
-        @"stheiti", @"lihei", @"weibei", @"wenquanyi", @"fandong", @"zhongyi"
-    ];
-    for (NSString *token in tokens) {
-        if ([name containsString:token]) return YES;
-    }
+    // Chinese font tokens
+    if ([name containsString:@"pingfang"]) return YES;
+    if ([name containsString:@"heiti"]) return YES;
+    if ([name containsString:@"hiragino"]) return YES;
+    if ([name containsString:@"song"]) return YES;
+    if ([name containsString:@"kaiti"]) return YES;
+    if ([name containsString:@"yahei"]) return YES;
+    if ([name containsString:@"simhei"]) return YES;
+    if ([name containsString:@"simsun"]) return YES;
+    if ([name containsString:@"sourcehan"]) return YES;
+    if ([name containsString:@"noto"]) return YES;
+    if ([name containsString:@"wawati"]) return YES;
+    if ([name containsString:@"xingkai"]) return YES;
+    if ([name containsString:@"stheiti"]) return YES;
+    if ([name containsString:@"lihei"]) return YES;
+    if ([name containsString:@"weibei"]) return YES;
+    if ([name containsString:@"wenquanyi"]) return YES;
+    if ([name containsString:@"fandong"]) return YES;
+    if ([name containsString:@"zhongyi"]) return YES;
     return NO;
 }
 
 static BOOL isLatinFontKey(NSString *key) {
+    if (!key || key.length == 0) return NO;
     NSString *name = key.lowercaseString;
-    // Check if this is a Chinese font key first
-    for (NSString *token in @[@"pingfang", @"heiti", @"hiragino", @"song", @"kaiti", @"yahei",
-                             @"simhei", @"simsun", @"sourcehan", @"noto", @"wawati", @"xingkai",
-                             @"stheiti", @"lihei", @"weibei", @"wenquanyi", @"fandong", @"zhongyi"]) {
-        if ([name containsString:token]) return NO;
-    }
-    NSArray<NSString *> *tokens = @[
-        @"sfui", @"helvetica", @"arial", @"avenir", @"sanfrancisco",
-        @"latin", @"fallback", @"system", @"ui"
-    ];
-    for (NSString *token in tokens) {
-        if ([name containsString:token]) return YES;
-    }
+    
+    // Exclude Chinese fonts first
+    if ([name containsString:@"pingfang"]) return NO;
+    if ([name containsString:@"heiti"]) return NO;
+    if ([name containsString:@"hiragino"]) return NO;
+    if ([name containsString:@"song"]) return NO;
+    if ([name containsString:@"kaiti"]) return NO;
+    if ([name containsString:@"yahei"]) return NO;
+    if ([name containsString:@"simhei"]) return NO;
+    if ([name containsString:@"simsun"]) return NO;
+    if ([name containsString:@"sourcehan"]) return NO;
+    if ([name containsString:@"noto"]) return NO;
+    if ([name containsString:@"wawati"]) return NO;
+    if ([name containsString:@"xingkai"]) return NO;
+    if ([name containsString:@"stheiti"]) return NO;
+    if ([name containsString:@"lihei"]) return NO;
+    if ([name containsString:@"weibei"]) return NO;
+    if ([name containsString:@"wenquanyi"]) return NO;
+    if ([name containsString:@"fandong"]) return NO;
+    if ([name containsString:@"zhongyi"]) return NO;
+    
+    // Check for Latin fonts
+    if ([name containsString:@"sfui"]) return YES;
+    if ([name containsString:@"helvetica"]) return YES;
+    if ([name containsString:@"arial"]) return YES;
+    if ([name containsString:@"avenir"]) return YES;
+    if ([name containsString:@"sanfrancisco"]) return YES;
+    if ([name containsString:@"latin"]) return YES;
+    if ([name containsString:@"fallback"]) return YES;
+    if ([name containsString:@"system"]) return YES;
+    if ([name containsString:@"ui"]) return YES;
     return NO;
 }
 
