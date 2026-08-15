@@ -817,9 +817,18 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *m
     NSDictionary<NSString *, NSString *> *fontIndex = nil;
     NSDictionary<NSString *, NSString *> *primarySources = nil;
     NSDictionary<NSString *, NSString *> *secondarySources = nil;
+    NSDictionary<NSString *, NSString *> *copySources = nil;
+    NSMutableDictionary<NSString *, NSString *> *merged = nil;
     NSString *optionalClockFont = nil;
     NSString *mountScheme = nil;
     NSString *target = nil;
+    NSString *clockTarget = nil;
+    NSString *relative = nil;
+    NSString *source = nil;
+    NSString *destination = nil;
+    NSString *destinationParent = nil;
+    BOOL destinationDirectory = NO;
+    BOOL clockDirectory = NO;
     NSUInteger replacedFileCount = 0;
     NSError *directoryError = nil;
 
@@ -885,12 +894,12 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *m
         if (customMode) primarySources = filterCustomFontSources(primarySources, YES);
     }
 
-    NSDictionary<NSString *, NSString *> *copySources = @{};
+    copySources = @{};
     if (!sfuiOnly) {
         copySources = primarySources;
     }
     if (customMode) {
-        NSMutableDictionary<NSString *, NSString *> *merged = [copySources mutableCopy];
+        merged = [copySources mutableCopy];
         if (secondarySources.count > 0) {
             for (NSString *key in secondarySources) {
                 merged[key] = secondarySources[key];
@@ -901,15 +910,15 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *m
 
     if (copySources.count > 0) {
         for (NSString *key in copySources) {
-            NSString *relative = fontIndex[key];
-            NSString *source = copySources[key];
+            relative = fontIndex[key];
+            source = copySources[key];
             if (relative.length == 0 || source.length == 0) {
                 failure = [NSString stringWithFormat:@"字体索引条目无效：%@。", key];
                 goto fail;
             }
-            NSString *destination = [target stringByAppendingPathComponent:relative];
-            NSString *destinationParent = destination.stringByDeletingLastPathComponent;
-            BOOL destinationDirectory = NO;
+            destination = [target stringByAppendingPathComponent:relative];
+            destinationParent = destination.stringByDeletingLastPathComponent;
+            destinationDirectory = NO;
             if (![NSFileManager.defaultManager fileExistsAtPath:destinationParent
                                                      isDirectory:&destinationDirectory] || !destinationDirectory) {
                 failure = [NSString stringWithFormat:@"目标字体目录不存在：%@。", relative.stringByDeletingLastPathComponent];
@@ -921,8 +930,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *m
     }
 
     if (optionalClockFont) {
-        NSString *clockTarget = [target stringByAppendingPathComponent:lockScreenFontRelativeTarget()];
-        BOOL clockDirectory = NO;
+        clockTarget = [target stringByAppendingPathComponent:lockScreenFontRelativeTarget()];
+        clockDirectory = NO;
         if (![NSFileManager.defaultManager fileExistsAtPath:clockTarget.stringByDeletingLastPathComponent
                                                  isDirectory:&clockDirectory] || !clockDirectory) {
             failure = [NSString stringWithFormat:@"当前系统缺少锁屏时钟字体目录：%@。", lockScreenFontRelativeTarget().stringByDeletingLastPathComponent];
