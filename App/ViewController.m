@@ -2215,7 +2215,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         targetScheme[@"optionalDisplayName"] = source.lastPathComponent.stringByDeletingPathExtension ?: @"锁屏字体";
         if (![targetScheme[@"primaryPath"] length]) targetScheme[@"name"] = targetScheme[@"optionalDisplayName"];
         self.selectedSchemeID = targetScheme[@"id"];
-        self.statusLabel.text = [NSString stringWithFormat:@"SFUISoft 字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
+        self.statusLabel.text = [NSString stringWithFormat:@"锁屏时钟字体文件导入完成：%@。尚未执行替换。", source.lastPathComponent];
     }
     [self applySelectedScheme];
     [self saveFontSchemes];
@@ -2224,7 +2224,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)confirmRun {
     if (self.primaryPath.length == 0 && self.optionalPath.length == 0) {
-        self.statusLabel.text = @"请至少选择主要字体包，或选择用于 SFUISoft 的字体包 / TTC 文件。";
+        self.statusLabel.text = @"请至少选择主要字体包，或选择锁屏时钟字体包 / TTC 文件。";
         return;
     }
     UIAlertController *alert = [UIAlertController
@@ -2316,7 +2316,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         ? @"运行日志\n• 正在恢复原生系统字体\n• 准备刷新字体缓存…"
         : self.primaryPath.length
         ? @"运行日志\n• 正在解压并验证字体包\n• 准备全局覆盖字体…"
-        : @"运行日志\n• 正在验证 SFUISoft.ttc\n• 准备替换锁屏字体…";
+        : @"运行日志\n• 正在验证锁屏时钟字体文件\n• 准备替换锁屏字体…";
     BOOL sfuiOnly = self.primaryPath.length == 0;
     NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
@@ -2377,7 +2377,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             self.statusLabel.text = restoringSystemFonts
                 ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存"
                 : sfuiOnly
-                ? @"运行日志\n✓ SFUISoft 替换完成\n• 正在刷新语言缓存"
+                ? @"运行日志\n✓ 锁屏时钟字体替换完成\n• 正在刷新语言缓存"
                 : @"运行日志\n✓ 全局字体覆盖完成\n• 正在刷新语言缓存";
             [self continueLanguageRefreshWithLanguage:language originalLanguages:originalLanguages];
         });

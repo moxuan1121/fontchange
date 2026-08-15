@@ -349,8 +349,20 @@ static NSDictionary<NSString *, NSString *> *primarySourcesForIndex(
     return selected;
 }
 
-static NSString *findOptionalSFUI(NSString *extracted, NSString **failure) {
-    return findFileNamed(extracted, @"SFUISoft.ttc", failure);
+static BOOL usesADTimeClockFont(void) {
+    return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 16;
+}
+
+static NSString *lockScreenFontFileName(void) {
+    return usesADTimeClockFont() ? @"ADTime.ttc" : @"SFUISoft.ttc";
+}
+
+static NSString *lockScreenFontRelativeTarget(void) {
+    return usesADTimeClockFont() ? @"Watch/ADTime.ttc" : @"CoreUI/SFUISoft.ttc";
+}
+
+static NSString *findOptionalClockFont(NSString *extracted, NSString **failure) {
+    return findFileNamed(extracted, lockScreenFontFileName(), failure);
 }
 
 static NSString *findLatinCardFont(NSString *extracted) {
@@ -422,7 +434,7 @@ static int preparePreview(NSString *kind, NSString *zipPath, NSString *destinati
         }
         if (!source) source = findLatinCardFont(work);
     } else if ([kind isEqualToString:@"optional"]) {
-        source = findOptionalSFUI(work, &failure);
+        source = findOptionalClockFont(work, &failure);
     }
     if (!source) {
         [NSFileManager.defaultManager removeItemAtPath:work error:nil];
@@ -633,7 +645,7 @@ static NSString *preferredFontsTarget(BOOL sfuiOnly, NSString **scheme, NSString
     }
 
     if (sfuiOnly) {
-        if (failure) *failure = @"当前没有生效的字体挂载；仅替换 SFUISoft 时不会自动创建或重建挂载。";
+        if (failure) *failure = @"当前没有生效的字体挂载；仅替换锁屏时钟字体时不会自动创建或重建挂载。";
         return nil;
     }
 
@@ -765,7 +777,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *failure = nil;
     NSDictionary<NSString *, NSString *> *fontIndex = nil;
     NSDictionary<NSString *, NSString *> *primarySources = nil;
-    NSString *optionalSFUI = nil;
+    NSString *optionalClockFont = nil;
     NSString *mountScheme = nil;
     NSString *target = nil;
     NSUInteger replacedFileCount = 0;
@@ -784,17 +796,17 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     }
 
     if (sfuiOnly && [optionalZip isEqualToString:@"-"]) {
-        failure = @"单独替换模式必须选择 SFUISoft 字体包或 TTC 文件。";
+        failure = @"单独替换模式必须选择锁屏时钟字体包或 TTC 文件。";
         goto fail;
     }
 
     if (![optionalZip isEqualToString:@"-"]) {
         if ([optionalZip.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
             if (![NSFileManager.defaultManager fileExistsAtPath:optionalZip]) {
-                failure = @"所选 SFUISoft.ttc 文件不存在或无法读取。";
+                failure = [NSString stringWithFormat:@"所选 %@ 文件不存在或无法读取。", lockScreenFontFileName()];
                 goto fail;
             }
-            optionalSFUI = optionalZip;
+            optionalClockFont = optionalZip;
         } else {
             directoryError = nil;
             if (![NSFileManager.defaultManager createDirectoryAtPath:optionalExtract
@@ -806,8 +818,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
                 goto fail;
             }
             if (!extractArchive(optionalZip, optionalExtract, &failure)) goto fail;
-            optionalSFUI = findOptionalSFUI(optionalExtract, &failure);
-            if (!optionalSFUI) goto fail;
+            optionalClockFont = findOptionalClockFont(optionalExtract, &failure);
+            if (!optionalClockFont) goto fail;
         }
     }
 
@@ -844,13 +856,23 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             replacedFileCount++;
         }
     }
-    if (optionalSFUI && !copyFile(optionalSFUI, [target stringByAppendingPathComponent:@"CoreUI/SFUISoft.ttc"], &failure)) goto fail;
+    if (optionalClockFont) {
+        NSString *clockTarget = [target stringByAppendingPathComponent:lockScreenFontRelativeTarget()];
+        BOOL clockDirectory = NO;
+        if (![NSFileManager.defaultManager fileExistsAtPath:clockTarget.stringByDeletingLastPathComponent
+                                                 isDirectory:&clockDirectory] || !clockDirectory) {
+            failure = [NSString stringWithFormat:@"当前系统缺少锁屏时钟字体目录：%@。", lockScreenFontRelativeTarget().stringByDeletingLastPathComponent];
+            goto fail;
+        }
+        if (!copyFile(optionalClockFont, clockTarget, &failure)) goto fail;
+    }
     writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；原生索引=%lu 项；全局匹配覆盖=%lu 项；挂载方案=%@%@", target,
         (unsigned long)fontIndex.count,
         (unsigned long)replacedFileCount,
         mountScheme ?: @"未知",
-        sfuiOnly ? @"；仅替换 SFUISoft.ttc" :
-            (optionalSFUI ? @"；SFUISoft.ttc 使用可选字体" : @"；全部字体使用主要字体包")]);
+        sfuiOnly ? [NSString stringWithFormat:@"；仅替换 %@", lockScreenFontRelativeTarget()] :
+            (optionalClockFont ? [NSString stringWithFormat:@"；%@ 使用可选字体", lockScreenFontRelativeTarget()]
+                               : @"；全部字体使用主要字体包")]);
     setSystemFontMarker(NO);
     [NSFileManager.defaultManager removeItemAtPath:work error:nil];
     return 0;
