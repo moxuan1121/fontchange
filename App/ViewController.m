@@ -1353,10 +1353,13 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)applySelectedScheme {
     NSDictionary *scheme = [self selectedScheme];
-    self.primaryPath = scheme[@"primaryPath"];
-    self.optionalPath = scheme[@"optionalPath"];
-    self.primaryDisplayName = scheme[@"primaryDisplayName"];
-    self.optionalDisplayName = scheme[@"optionalDisplayName"];
+    BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
+    NSString *customChinese = [scheme[@"customChinesePath"] length] ? scheme[@"customChinesePath"] : nil;
+    NSString *customLatin = [scheme[@"customLatinPath"] length] ? scheme[@"customLatinPath"] : nil;
+    self.primaryPath = customMode ? (customChinese ?: scheme[@"primaryPath"]) : scheme[@"primaryPath"];
+    self.optionalPath = customMode ? (customLatin ?: scheme[@"optionalPath"]) : scheme[@"optionalPath"];
+    self.primaryDisplayName = customMode ? (scheme[@"customChineseDisplayName"] ?: scheme[@"primaryDisplayName"]) : scheme[@"primaryDisplayName"];
+    self.optionalDisplayName = customMode ? (scheme[@"customLatinDisplayName"] ?: scheme[@"optionalDisplayName"]) : scheme[@"optionalDisplayName"];
     [self.previewView setShowsSwitchHint:(self.primaryPath.length && self.optionalPath.length)];
     // A newly selected scheme always opens on the global preview. The user can
     // tap the large preview card to switch to the lock-screen preview.
@@ -1376,10 +1379,21 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         self.selectedSummaryButton.enabled = NO;
         return;
     }
+    BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
     BOOL hasGlobal = self.primaryPath.length > 0;
     BOOL hasLock = self.optionalPath.length > 0;
-    NSString *mode = hasGlobal && hasLock ? @"全局 + 自定义时钟"
-        : (hasGlobal ? @"全局字体" : @"自定义时钟");
+    NSString *mode = nil;
+    if (customMode) {
+        BOOL hasChinese = [scheme[@"customChinesePath"] length] > 0;
+        BOOL hasLatin = [scheme[@"customLatinPath"] length] > 0;
+        if (hasChinese && hasLatin) mode = @"自定义中文 + 自定义英数字";
+        else if (hasChinese) mode = @"自定义中文";
+        else if (hasLatin) mode = @"自定义英数字";
+        else mode = @"自定义字体";
+    } else {
+        mode = hasGlobal && hasLock ? @"全局 + 自定义时钟"
+            : (hasGlobal ? @"全局字体" : @"自定义时钟");
+    }
     [self.selectedSummaryButton setTitle:[NSString stringWithFormat:@"已选择：%@ · %@",
         scheme[@"name"] ?: @"字体方案", mode] forState:UIControlStateNormal];
     self.selectedSummaryButton.enabled = YES;
@@ -1470,11 +1484,19 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         card.schemeIndex = (NSInteger)index;
         card.schemeID = scheme[@"id"];
         card.nameLabel.text = scheme[@"name"] ?: @"未命名字体";
-        BOOL hasGlobal = [scheme[@"primaryPath"] length] > 0;
-        BOOL hasLock = [scheme[@"optionalPath"] length] > 0;
+        BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
+        BOOL hasGlobal = customMode ? ([scheme[@"customChinesePath"] length] > 0 || [scheme[@"primaryPath"] length] > 0) : [scheme[@"primaryPath"] length] > 0;
+        BOOL hasLock = customMode ? ([scheme[@"customLatinPath"] length] > 0 || [scheme[@"optionalPath"] length] > 0) : [scheme[@"optionalPath"] length] > 0;
         BOOL selected = [scheme[@"id"] isEqualToString:self.selectedSchemeID];
-        card.detailLabel.text = hasGlobal && hasLock ? @"全局 + 自定义时钟"
-            : (hasGlobal ? @"全局字体" : @"自定义时钟");
+        if (customMode) {
+            BOOL hasChinese = [scheme[@"customChinesePath"] length] > 0;
+            BOOL hasLatin = [scheme[@"customLatinPath"] length] > 0;
+            card.detailLabel.text = hasChinese && hasLatin ? @"自定义中文 + 英数字"
+                : (hasChinese ? @"自定义中文" : (hasLatin ? @"自定义英数字" : @"自定义字体"));
+        } else {
+            card.detailLabel.text = hasGlobal && hasLock ? @"全局 + 自定义时钟"
+                : (hasGlobal ? @"全局字体" : @"自定义时钟");
+        }
         card.detailLabel.adjustsFontSizeToFitWidth = YES;
         card.detailLabel.minimumScaleFactor = 0.78;
         card.tag = (NSInteger)index;
@@ -1988,6 +2010,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [menu addAction:[UIAlertAction actionWithTitle:@"新建仅锁屏字体方案" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         [self presentPickerForSlot:3];
     }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"高级自定义：中文字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self presentPickerForSlot:4];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"高级自定义：英数字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        [self presentPickerForSlot:5];
+    }]];
     [menu addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     menu.popoverPresentationController.sourceView = self.importButton;
     menu.popoverPresentationController.sourceRect = self.importButton.bounds;
@@ -2139,17 +2167,34 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)importPickedURL:(NSURL *)source {
     NSString *extension = source.pathExtension.lowercaseString;
     BOOL acceptsZIP = [extension isEqualToString:@"zip"];
-    BOOL acceptsTTC = self.pickingSlot >= 2 && [extension isEqualToString:@"ttc"];
+    BOOL acceptsTTC = (self.pickingSlot >= 2 && self.pickingSlot <= 5) && [extension isEqualToString:@"ttc"];
     if (!acceptsZIP && !acceptsTTC) {
         self.statusLabel.text = self.pickingSlot == 1
             ? @"主要字体包必须是 .zip 文件。"
             : @"请选择字体 ZIP 或单个 .ttc 文件。";
         return;
     }
-    NSMutableDictionary *targetScheme = self.pickingSlot == 2 ? [self selectedScheme] : nil;
+    NSMutableDictionary *targetScheme = nil;
+    if (self.pickingSlot == 2) {
+        targetScheme = [self selectedScheme];
+    } else if (self.pickingSlot == 4 || self.pickingSlot == 5) {
+        NSDictionary *selected = [self selectedScheme];
+        if ([selected[@"schemeType"] isEqualToString:@"custom"]) {
+            targetScheme = [selected mutableCopy];
+        } else {
+            NSString *newID = NSUUID.UUID.UUIDString;
+            targetScheme = [@{
+                @"id": newID,
+                @"name": self.pickingSlot == 4 ? @"自定义中文字体" : @"自定义英数字体",
+                @"schemeType": @"custom",
+            } mutableCopy];
+            [self.fontSchemes addObject:targetScheme];
+            self.selectedSchemeID = newID;
+        }
+    }
     NSString *schemeID = targetScheme[@"id"];
     if (!schemeID.length) schemeID = NSUUID.UUID.UUIDString;
-    NSString *role = self.pickingSlot == 1 ? @"global" : @"sfui";
+    NSString *role = self.pickingSlot == 1 ? @"global" : (self.pickingSlot == 4 ? @"custom-zh" : (self.pickingSlot == 5 ? @"custom-latin" : @"sfui"));
     NSString *name = [NSString stringWithFormat:@"%@-%@.%@", schemeID, role, extension];
     NSString *destination = [self.importsDirectory stringByAppendingPathComponent:name];
     [NSFileManager.defaultManager removeItemAtPath:destination error:nil];
@@ -2198,6 +2243,43 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self.fontSchemes addObject:targetScheme];
         self.selectedSchemeID = schemeID;
         self.statusLabel.text = [NSString stringWithFormat:@"主要字体包导入完成：%@。尚未执行替换。", source.lastPathComponent];
+    } else if (self.pickingSlot == 4 || self.pickingSlot == 5) {
+        if (!targetScheme) {
+            targetScheme = [@{
+                @"id": schemeID,
+                @"name": self.pickingSlot == 4 ? @"自定义中文字体" : @"自定义英数字体",
+                @"schemeType": @"custom",
+            } mutableCopy];
+            [self.fontSchemes addObject:targetScheme];
+        }
+        [self invalidatePreviewCacheForSchemeID:targetScheme[@"id"]];
+        if (self.pickingSlot == 4) {
+            NSString *oldChinese = targetScheme[@"customChinesePath"];
+            if (oldChinese.length && ![oldChinese isEqualToString:destination]) {
+                [NSFileManager.defaultManager removeItemAtPath:oldChinese error:nil];
+            }
+            targetScheme[@"customChinesePath"] = destination;
+            targetScheme[@"customChineseDisplayName"] = source.lastPathComponent.stringByDeletingPathExtension ?: @"自定义中文字体";
+            if (![targetScheme[@"customLatinPath"] length]) {
+                targetScheme[@"name"] = targetScheme[@"customChineseDisplayName"];
+            } else {
+                targetScheme[@"name"] = @"自定义中文 + 自定义英数字";
+            }
+        } else {
+            NSString *oldLatin = targetScheme[@"customLatinPath"];
+            if (oldLatin.length && ![oldLatin isEqualToString:destination]) {
+                [NSFileManager.defaultManager removeItemAtPath:oldLatin error:nil];
+            }
+            targetScheme[@"customLatinPath"] = destination;
+            targetScheme[@"customLatinDisplayName"] = source.lastPathComponent.stringByDeletingPathExtension ?: @"自定义英数字体";
+            if (![targetScheme[@"customChinesePath"] length]) {
+                targetScheme[@"name"] = targetScheme[@"customLatinDisplayName"];
+            } else {
+                targetScheme[@"name"] = @"自定义中文 + 自定义英数字";
+            }
+        }
+        self.selectedSchemeID = targetScheme[@"id"];
+        self.statusLabel.text = [NSString stringWithFormat:@"高级自定义字体导入完成：%@。尚未执行替换。", source.lastPathComponent];
     } else {
         if (!targetScheme) {
             targetScheme = [@{
