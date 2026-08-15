@@ -637,7 +637,8 @@ static NSString *rebuildExternalFontsTarget(NSString *activeTarget, NSString *ac
     return activeTarget;
 }
 
-static NSString *preferredFontsTarget(BOOL sfuiOnly, NSString **scheme, NSString **failure) {
+static NSString *preferredFontsTarget(BOOL sfuiOnly, BOOL reuseActiveMount,
+                                      NSString **scheme, NSString **failure) {
     NSString *target = nil;
     NSString *activeScheme = nil;
 
@@ -645,7 +646,7 @@ static NSString *preferredFontsTarget(BOOL sfuiOnly, NSString **scheme, NSString
     // must never decide where new fonts are written.
     target = mountedFontsTarget(&activeScheme);
     if (target) {
-        if (!sfuiOnly) {
+        if (!sfuiOnly && !reuseActiveMount) {
             if ([activeScheme hasPrefix:@"mnt"] || [activeScheme hasPrefix:@"mount_bindfs"]) {
                 return rebuildExternalFontsTarget(target, activeScheme, scheme, failure);
             }
@@ -864,7 +865,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *m
         }
     }
 
-    target = preferredFontsTarget(sfuiOnly, &mountScheme, &failure);
+    target = preferredFontsTarget(sfuiOnly, customMode, &mountScheme, &failure);
     if (!target) goto fail;
 
     fontIndex = nativeFontIndex(&failure);
