@@ -365,77 +365,26 @@ static NSString *findOptionalClockFont(NSString *extracted, NSString **failure) 
     return findFileNamed(extracted, lockScreenFontFileName(), failure);
 }
 
-static BOOL isChineseFontKey(NSString *key) {
-    if (!key || key.length == 0) return NO;
-    NSString *name = key.lowercaseString;
-    // Chinese font tokens
-    if ([name containsString:@"pingfang"]) return YES;
-    if ([name containsString:@"heiti"]) return YES;
-    if ([name containsString:@"hiragino"]) return YES;
-    if ([name containsString:@"song"]) return YES;
-    if ([name containsString:@"kaiti"]) return YES;
-    if ([name containsString:@"yahei"]) return YES;
-    if ([name containsString:@"simhei"]) return YES;
-    if ([name containsString:@"simsun"]) return YES;
-    if ([name containsString:@"sourcehan"]) return YES;
-    if ([name containsString:@"noto"]) return YES;
-    if ([name containsString:@"wawati"]) return YES;
-    if ([name containsString:@"xingkai"]) return YES;
-    if ([name containsString:@"stheiti"]) return YES;
-    if ([name containsString:@"lihei"]) return YES;
-    if ([name containsString:@"weibei"]) return YES;
-    if ([name containsString:@"wenquanyi"]) return YES;
-    if ([name containsString:@"fandong"]) return YES;
-    if ([name containsString:@"zhongyi"]) return YES;
-    return NO;
-}
-
-static BOOL isLatinFontKey(NSString *key) {
-    if (!key || key.length == 0) return NO;
-    NSString *name = key.lowercaseString;
-    
-    // Exclude Chinese fonts first
-    if ([name containsString:@"pingfang"]) return NO;
-    if ([name containsString:@"heiti"]) return NO;
-    if ([name containsString:@"hiragino"]) return NO;
-    if ([name containsString:@"song"]) return NO;
-    if ([name containsString:@"kaiti"]) return NO;
-    if ([name containsString:@"yahei"]) return NO;
-    if ([name containsString:@"simhei"]) return NO;
-    if ([name containsString:@"simsun"]) return NO;
-    if ([name containsString:@"sourcehan"]) return NO;
-    if ([name containsString:@"noto"]) return NO;
-    if ([name containsString:@"wawati"]) return NO;
-    if ([name containsString:@"xingkai"]) return NO;
-    if ([name containsString:@"stheiti"]) return NO;
-    if ([name containsString:@"lihei"]) return NO;
-    if ([name containsString:@"weibei"]) return NO;
-    if ([name containsString:@"wenquanyi"]) return NO;
-    if ([name containsString:@"fandong"]) return NO;
-    if ([name containsString:@"zhongyi"]) return NO;
-    
-    // Check for Latin fonts
-    if ([name containsString:@"sfui"]) return YES;
-    if ([name containsString:@"helvetica"]) return YES;
-    if ([name containsString:@"arial"]) return YES;
-    if ([name containsString:@"avenir"]) return YES;
-    if ([name containsString:@"sanfrancisco"]) return YES;
-    if ([name containsString:@"latin"]) return YES;
-    if ([name containsString:@"fallback"]) return YES;
-    if ([name containsString:@"system"]) return YES;
-    if ([name containsString:@"ui"]) return YES;
-    return NO;
-}
-
 static NSDictionary<NSString *, NSString *> *filterCustomFontSources(
     NSDictionary<NSString *, NSString *> *sources, BOOL chinese) {
     if (!sources || sources.count == 0) return sources;
     NSMutableDictionary<NSString *, NSString *> *filtered = [NSMutableDictionary dictionary];
+    
     for (NSString *key in sources) {
-        if ((chinese && isChineseFontKey(key)) || (!chinese && isLatinFontKey(key))) {
-            filtered[key] = sources[key];
+        NSString *sourceFilePath = sources[key];
+        NSString *fileName = sourceFilePath.lastPathComponent;
+        
+        // 根据源文件名是否包含 "PingFang" 来分类
+        // "PingFang" 是系统中文字体的标准前缀 (例如: PingFang.ttc, PingFangUI.ttc)
+        BOOL hasPingFang = [fileName rangeOfString:@"PingFang" options:NSCaseInsensitiveSearch].location != NSNotFound;
+        
+        // 中文模式: 只处理包含 "PingFang" 的文件
+        // 英数模式: 只处理不包含 "PingFang" 的文件
+        if ((chinese && hasPingFang) || (!chinese && !hasPingFang)) {
+            filtered[key] = sourceFilePath;
         }
     }
+    
     return filtered.count > 0 ? filtered : sources;
 }
 
