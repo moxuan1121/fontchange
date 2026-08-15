@@ -894,7 +894,8 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *m
             if (!customMode) {
                 optionalClockFont = optionalZip;
             } else {
-                secondarySources = @{[lockScreenFontFileName()]: optionalZip};
+                NSString *clockFontFileName = lockScreenFontFileName();
+                secondarySources = @{clockFontFileName: optionalZip};
             }
         } else {
             directoryError = nil;
