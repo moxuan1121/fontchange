@@ -380,7 +380,12 @@ static BOOL isChineseFontKey(NSString *key) {
 
 static BOOL isLatinFontKey(NSString *key) {
     NSString *name = key.lowercaseString;
-    if (isChineseFontKey(name)) return NO;
+    // Check if this is a Chinese font key first
+    for (NSString *token in @[@"pingfang", @"heiti", @"hiragino", @"song", @"kaiti", @"yahei",
+                             @"simhei", @"simsun", @"sourcehan", @"noto", @"wawati", @"xingkai",
+                             @"stheiti", @"lihei", @"weibei", @"wenquanyi", @"fandong", @"zhongyi"]) {
+        if ([name containsString:token]) return NO;
+    }
     NSArray<NSString *> *tokens = @[
         @"sfui", @"helvetica", @"arial", @"avenir", @"sanfrancisco",
         @"latin", @"fallback", @"system", @"ui"
