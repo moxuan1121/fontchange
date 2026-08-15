@@ -365,6 +365,44 @@ static NSString *findOptionalClockFont(NSString *extracted, NSString **failure) 
     return findFileNamed(extracted, lockScreenFontFileName(), failure);
 }
 
+static BOOL isChineseFontKey(NSString *key) {
+    NSString *name = key.lowercaseString;
+    NSArray<NSString *> *tokens = @[
+        @"pingfang", @"heiti", @"hiragino", @"song", @"kaiti", @"yahei",
+        @"simhei", @"simsun", @"sourcehan", @"noto", @"wawati", @"xingkai",
+        @"stheiti", @"lihei", @"weibei", @"wenquanyi", @"fandong", @"zhongyi"
+    ];
+    for (NSString *token in tokens) {
+        if ([name containsString:token]) return YES;
+    }
+    return NO;
+}
+
+static BOOL isLatinFontKey(NSString *key) {
+    NSString *name = key.lowercaseString;
+    if (isChineseFontKey(name)) return NO;
+    NSArray<NSString *> *tokens = @[
+        @"sfui", @"helvetica", @"arial", @"avenir", @"sanfrancisco",
+        @"latin", @"fallback", @"system", @"ui"
+    ];
+    for (NSString *token in tokens) {
+        if ([name containsString:token]) return YES;
+    }
+    return NO;
+}
+
+static NSDictionary<NSString *, NSString *> *filterCustomFontSources(
+    NSDictionary<NSString *, NSString *> *sources, BOOL chinese) {
+    if (!sources || sources.count == 0) return sources;
+    NSMutableDictionary<NSString *, NSString *> *filtered = [NSMutableDictionary dictionary];
+    for (NSString *key in sources) {
+        if ((chinese && isChineseFontKey(key)) || (!chinese && isLatinFontKey(key))) {
+            filtered[key] = sources[key];
+        }
+    }
+    return filtered.count > 0 ? filtered : sources;
+}
+
 static NSString *findLatinCardFont(NSString *extracted) {
     NSInteger currentMajor = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
     NSString *versionToken = [NSString stringWithFormat:@"ios%ld", (long)currentMajor];
@@ -766,7 +804,8 @@ static int detectMountMode(void) {
     return 12;
 }
 
-static int installFonts(NSString *primaryZip, NSString *optionalZip) {
+static int installFonts(NSString *primaryZip, NSString *optionalZip, NSString *mode) {
+    BOOL customMode = [mode isEqualToString:@"custom"];
     BOOL sfuiOnly = [primaryZip isEqualToString:@"-"];
     NSString *jailbreakTemporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [jailbreakTemporary stringByAppendingPathComponent:
@@ -777,6 +816,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
     NSString *failure = nil;
     NSDictionary<NSString *, NSString *> *fontIndex = nil;
     NSDictionary<NSString *, NSString *> *primarySources = nil;
+    NSDictionary<NSString *, NSString *> *secondarySources = nil;
     NSString *optionalClockFont = nil;
     NSString *mountScheme = nil;
     NSString *target = nil;
@@ -806,7 +846,11 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
                 failure = [NSString stringWithFormat:@"所选 %@ 文件不存在或无法读取。", lockScreenFontFileName()];
                 goto fail;
             }
-            optionalClockFont = optionalZip;
+            if (!customMode) {
+                optionalClockFont = optionalZip;
+            } else {
+                secondarySources = @{[lockScreenFontFileName()]: optionalZip};
+            }
         } else {
             directoryError = nil;
             if (![NSFileManager.defaultManager createDirectoryAtPath:optionalExtract
@@ -818,28 +862,47 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
                 goto fail;
             }
             if (!extractArchive(optionalZip, optionalExtract, &failure)) goto fail;
-            optionalClockFont = findOptionalClockFont(optionalExtract, &failure);
-            if (!optionalClockFont) goto fail;
+            if (!customMode) {
+                optionalClockFont = findOptionalClockFont(optionalExtract, &failure);
+                if (!optionalClockFont) goto fail;
+            }
         }
     }
 
-    // Reuse the source that is really mounted on /System/Library/Fonts.
-    // If no compatible mount is active, create FontChange's own mount.
     target = preferredFontsTarget(sfuiOnly, &mountScheme, &failure);
     if (!target) goto fail;
 
-    // Build this once from the original filename layout after migration.
     fontIndex = nativeFontIndex(&failure);
     if (!fontIndex) goto fail;
+    if (customMode && ![optionalZip isEqualToString:@"-"] && ![optionalZip.pathExtension.lowercaseString isEqualToString:@"ttc"]) {
+        secondarySources = primarySourcesForIndex(optionalExtract, fontIndex, &failure);
+        if (!secondarySources) goto fail;
+        secondarySources = filterCustomFontSources(secondarySources, NO);
+    }
     if (!sfuiOnly) {
         primarySources = primarySourcesForIndex(primaryExtract, fontIndex, &failure);
         if (!primarySources) goto fail;
+        if (customMode) primarySources = filterCustomFontSources(primarySources, YES);
     }
 
+    NSDictionary<NSString *, NSString *> *copySources = @{};
     if (!sfuiOnly) {
-        for (NSString *key in primarySources) {
+        copySources = primarySources;
+    }
+    if (customMode) {
+        NSMutableDictionary<NSString *, NSString *> *merged = [copySources mutableCopy];
+        if (secondarySources.count > 0) {
+            for (NSString *key in secondarySources) {
+                merged[key] = secondarySources[key];
+            }
+        }
+        copySources = merged;
+    }
+
+    if (copySources.count > 0) {
+        for (NSString *key in copySources) {
             NSString *relative = fontIndex[key];
-            NSString *source = primarySources[key];
+            NSString *source = copySources[key];
             if (relative.length == 0 || source.length == 0) {
                 failure = [NSString stringWithFormat:@"字体索引条目无效：%@。", key];
                 goto fail;
@@ -856,6 +919,7 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
             replacedFileCount++;
         }
     }
+
     if (optionalClockFont) {
         NSString *clockTarget = [target stringByAppendingPathComponent:lockScreenFontRelativeTarget()];
         BOOL clockDirectory = NO;
@@ -866,13 +930,15 @@ static int installFonts(NSString *primaryZip, NSString *optionalZip) {
         }
         if (!copyFile(optionalClockFont, clockTarget, &failure)) goto fail;
     }
+
     writeReport([NSString stringWithFormat:@"成功：字体已覆盖到 %@；原生索引=%lu 项；全局匹配覆盖=%lu 项；挂载方案=%@%@", target,
         (unsigned long)fontIndex.count,
         (unsigned long)replacedFileCount,
         mountScheme ?: @"未知",
-        sfuiOnly ? [NSString stringWithFormat:@"；仅替换 %@", lockScreenFontRelativeTarget()] :
-            (optionalClockFont ? [NSString stringWithFormat:@"；%@ 使用可选字体", lockScreenFontRelativeTarget()]
-                               : @"；全部字体使用主要字体包")]);
+        customMode ? @"；已按自定义中文/英数字体分别应用" :
+            (sfuiOnly ? [NSString stringWithFormat:@"；仅替换 %@", lockScreenFontRelativeTarget()] :
+                (optionalClockFont ? [NSString stringWithFormat:@"；%@ 使用可选字体", lockScreenFontRelativeTarget()]
+                                   : @"；全部字体使用主要字体包"))]);
     setSystemFontMarker(NO);
     [NSFileManager.defaultManager removeItemAtPath:work error:nil];
     return 0;
@@ -952,8 +1018,9 @@ int main(int argc, char *argv[]) {
     @autoreleasepool {
         if (geteuid() != 0) return 77;
         NSString *mode = argc > 1 ? [NSString stringWithUTF8String:argv[1]] : @"";
-        if ([mode isEqualToString:@"--install"] && argc == 4) {
-            return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]]);
+        if ([mode isEqualToString:@"--install"] && (argc == 4 || argc == 5)) {
+            NSString *installMode = argc == 5 ? [NSString stringWithUTF8String:argv[4]] : @"legacy";
+            return installFonts([NSString stringWithUTF8String:argv[2]], [NSString stringWithUTF8String:argv[3]], installMode);
         }
         if ([mode isEqualToString:@"--restore-system-fonts"] && argc == 2) {
             return restoreSystemFonts();

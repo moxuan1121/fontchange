@@ -2402,6 +2402,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     BOOL sfuiOnly = self.primaryPath.length == 0;
     NSString *primary = self.primaryPath ?: @"-";
     NSString *optional = self.optionalPath ?: @"-";
+    BOOL customScheme = [[self selectedScheme][@"schemeType"] isEqualToString:@"custom"];
     NSString *appliedSchemeID = [self.selectedSchemeID copy];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         int status = 0;
@@ -2435,7 +2436,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         }
         if (status == 0) {
             NSArray<NSString *> *helperArguments = restoringSystemFonts
-                ? @[@"--restore-system-fonts"] : @[@"--install", helperPrimary, helperOptional];
+                ? @[@"--restore-system-fonts"]
+                : customScheme
+                    ? @[@"--install", helperPrimary, helperOptional, @"custom"]
+                    : @[@"--install", helperPrimary, helperOptional];
             status = [self runHelperArguments:helperArguments wait:YES];
         } else {
             [@"失败：无法将持久化字体包复制到 RootHide 临时处理目录。"
