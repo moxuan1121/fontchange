@@ -2197,19 +2197,14 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     if (self.pickingSlot == 2) {
         targetScheme = [self selectedScheme];
     } else if (self.pickingSlot == 4 || self.pickingSlot == 5) {
-        NSDictionary *selected = [self selectedScheme];
-        if ([selected[@"schemeType"] isEqualToString:@"custom"]) {
-            targetScheme = [selected mutableCopy];
-        } else {
-            NSString *newID = NSUUID.UUID.UUIDString;
-            targetScheme = [@{
-                @"id": newID,
-                @"name": self.pickingSlot == 4 ? @"自定义中文字体" : @"自定义英数字体",
-                @"schemeType": @"custom",
-            } mutableCopy];
-            [self.fontSchemes addObject:targetScheme];
-            self.selectedSchemeID = newID;
-        }
+        NSString *newID = NSUUID.UUID.UUIDString;
+        targetScheme = [@{
+            @"id": newID,
+            @"name": self.pickingSlot == 4 ? @"自定义中文字体" : @"自定义英数字体",
+            @"schemeType": @"custom",
+        } mutableCopy];
+        [self.fontSchemes addObject:targetScheme];
+        self.selectedSchemeID = newID;
     }
     NSString *schemeID = targetScheme[@"id"];
     if (!schemeID.length) schemeID = NSUUID.UUID.UUIDString;
