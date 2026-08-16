@@ -980,16 +980,23 @@ static BOOL commitLanguages(NSArray<NSString *> *languages) {
         RTLD_LAZY | RTLD_LOCAL);
     Class cls = NSClassFromString(@"InternationalSettingsController");
     if (!handle || !cls) return NO;
-    ((void (*)(id, SEL, id))objc_msgSend)(cls, NSSelectorFromString(@"setPreferredLanguages:"), languages);
-    ((void (*)(id, SEL, id))objc_msgSend)(cls, NSSelectorFromString(@"setLanguage:"), languages.firstObject);
-    ((void (*)(id, SEL))objc_msgSend)(cls, NSSelectorFromString(@"syncPreferencesAndPostNotificationForLanguageChange"));
+    SEL preferredLanguagesSelector = NSSelectorFromString(@"setPreferredLanguages:");
+    SEL languageSelector = NSSelectorFromString(@"setLanguage:");
+    SEL syncSelector = NSSelectorFromString(@"syncPreferencesAndPostNotificationForLanguageChange");
+    SEL writeSelector = NSSelectorFromString(@"writeLanguageAndLocaleConfigurationIfNeededWithCompletion:");
+    if (![cls respondsToSelector:preferredLanguagesSelector] ||
+        ![cls respondsToSelector:languageSelector] ||
+        ![cls respondsToSelector:syncSelector] ||
+        ![cls respondsToSelector:writeSelector]) return NO;
+    ((void (*)(id, SEL, id))objc_msgSend)(cls, preferredLanguagesSelector, languages);
+    ((void (*)(id, SEL, id))objc_msgSend)(cls, languageSelector, languages.firstObject);
+    ((void (*)(id, SEL))objc_msgSend)(cls, syncSelector);
     BOOL waitForWrite = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 16;
     dispatch_semaphore_t writeSemaphore = waitForWrite ? dispatch_semaphore_create(0) : NULL;
     void (^completion)(void) = waitForWrite
         ? ^{ dispatch_semaphore_signal(writeSemaphore); }
         : ^{};
-    ((void (*)(id, SEL, id))objc_msgSend)(cls,
-        NSSelectorFromString(@"writeLanguageAndLocaleConfigurationIfNeededWithCompletion:"), completion);
+    ((void (*)(id, SEL, id))objc_msgSend)(cls, writeSelector, completion);
     if (waitForWrite) {
         dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC);
         if (dispatch_semaphore_wait(writeSemaphore, timeout) != 0) return NO;
