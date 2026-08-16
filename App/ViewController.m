@@ -203,6 +203,38 @@ static void FCDrawCenteredPreviewLine(CGContextRef context, NSString *text, CTFo
     CFRelease(font);
 }
 
+static void FCDrawCenteredPreviewLineVertically(CGContextRef context, NSString *text,
+                                                CTFontRef sourceFont, UIColor *color,
+                                                CGFloat centerX, CGFloat centerY,
+                                                CGFloat maxWidth, CGFloat minimumSize) {
+    CTFontRef font = CFRetain(sourceFont);
+    CGFloat width = 0;
+    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+        [[NSAttributedString alloc] initWithString:text attributes:@{
+            (__bridge id)kCTFontAttributeName: (__bridge id)font,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+        }]);
+    width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    if (width > maxWidth) {
+        CGFloat size = MAX(minimumSize, CTFontGetSize(font) * maxWidth / MAX(1.0, width));
+        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, size, NULL, NULL);
+        CFRelease(font);
+        font = fitted;
+        CFRelease(line);
+        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+            [[NSAttributedString alloc] initWithString:text attributes:@{
+                (__bridge id)kCTFontAttributeName: (__bridge id)font,
+                (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
+            }]);
+        width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    }
+    CGFloat baseline = centerY - (CTFontGetAscent(font) - CTFontGetDescent(font)) * 0.5;
+    CGContextSetTextPosition(context, centerX - width * 0.5, baseline);
+    CTLineDraw(line, context);
+    CFRelease(line);
+    CFRelease(font);
+}
+
 static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef font,
                               UIColor *color, CGFloat right, CGFloat baseline, CGFloat maxWidth) {
     NSDictionary *attributes = @{
@@ -256,12 +288,14 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
     }
     if (_previewFont) {
         if (_lockScreenPreview) {
-            FCDrawCenteredPreviewLine(context, @"0123456789", headline, ink, width * 0.5,
-                                      49 * scale, width - 40, 22 * scale);
+            FCDrawCenteredPreviewLineVertically(context, @"0123456789", headline, ink,
+                                                width * 0.5, CGRectGetMidY(rect), width - 40, 22 * scale);
         } else if ([_previewKind isEqualToString:@"custom-chinese"]) {
-            FCDrawPreviewLine(context, @"字形有温度，阅读更从容", headline, ink, 20, 61 * scale, width - 40, 18 * scale);
+            FCDrawCenteredPreviewLineVertically(context, @"字形有温度，阅读更从容", headline,
+                                                ink, width * 0.5, CGRectGetMidY(rect), width - 40, 18 * scale);
         } else if ([_previewKind isEqualToString:@"custom-latin"]) {
-            FCDrawPreviewLine(context, @"Aa·Bb · 0123456789", headline, ink, 20, 49 * scale, width - 40, 18 * scale);
+            FCDrawCenteredPreviewLineVertically(context, @"Aa·Bb · 0123456789", headline,
+                                                ink, width * 0.5, CGRectGetMidY(rect), width - 40, 18 * scale);
         } else {
             FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61 * scale, width - 40, 18 * scale);
             FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
@@ -1564,7 +1598,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         : ([scheme[@"primaryPath"] length] ? @"primary-card" : @"optional");
     NSString *sampleText = customMode
         ? (hasChinese ? @"汉" : @"Aa")
-        : ([scheme[@"primaryPath"] length] ? @"Aa" : @"0123456789");
+        : ([scheme[@"primaryPath"] length] ? @"Aa" : @"123");
     [card.sampleView setPreviewText:sampleText];
     NSString *schemeID = [scheme[@"id"] copy];
     __weak FCFontSchemeCard *weakCard = card;
