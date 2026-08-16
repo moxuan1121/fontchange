@@ -339,8 +339,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         NSString *probe = _previewText ?: @"Aa";
         NSUInteger length = probe.length;
-        UniChar characters[8] = {0};
-        CGGlyph glyphs[8] = {0};
+        UniChar *characters = calloc(length, sizeof(UniChar));
+        CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
         [probe getCharacters:characters range:NSMakeRange(0, length)];
         for (CFIndex index = 0; index < CFArrayGetCount(descriptors); index++) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
@@ -361,6 +361,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             }
             if (coverage == (CFIndex)length) break;
         }
+        free(characters);
+        free(glyphs);
     }
     if (descriptors) CFRelease(descriptors);
     if (_sampleFont && bestCoverage == requiredCoverage) {
