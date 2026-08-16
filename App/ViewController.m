@@ -1483,7 +1483,6 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)prepareSchemePreview:(NSDictionary *)scheme forCard:(FCFontSchemeCard *)card {
     BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
     BOOL hasChinese = [scheme[@"customChinesePath"] length] > 0;
-    BOOL hasLatin = [scheme[@"customLatinPath"] length] > 0;
     NSString *source = customMode
         ? (hasChinese ? scheme[@"customChinesePath"] : scheme[@"customLatinPath"])
         : ([scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"]);
