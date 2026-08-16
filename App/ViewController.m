@@ -666,6 +666,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) NSOperationQueue *previewQueue;
 @property(nonatomic, copy) NSString *selectedSchemeID;
 @property(nonatomic, copy) NSString *activeSchemeID;
+@property(nonatomic, copy) NSString *activeGlobalSchemeID;
+@property(nonatomic, copy) NSString *activeChineseSchemeID;
+@property(nonatomic, copy) NSString *activeLatinSchemeID;
+@property(nonatomic, copy) NSString *activeLockSchemeID;
 @property(nonatomic) NSInteger selectedPreviewSlot;
 @property(nonatomic, strong) UIView *processingCurtain;
 @property(nonatomic) NSUInteger previewGeneration;
@@ -683,7 +687,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)scrollToSchemeIndex:(NSInteger)index animated:(BOOL)animated;
 - (NSInteger)schemePageCount;
 - (void)updateSchemePageControlForOffset:(CGFloat)offset;
-- (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID;
+- (void)loadActiveSchemeState;
+- (void)refreshUsageAppearance;
+- (void)updateActiveStateForScheme:(NSDictionary *)scheme schemeID:(NSString *)schemeID restoring:(BOOL)restoring;
 - (void)migratePersistentStorageIfNeeded;
 - (NSString *)resolvedPersistentImportPath:(NSString *)storedPath;
 - (BOOL)isUsablePersistentFile:(NSString *)path;
@@ -962,6 +968,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [self.view addGestureRecognizer:outsideTap];
     [self cleanupOldImports];
     [self loadFontSchemes];
+    [self loadActiveSchemeState];
     [self rebuildSchemeCards];
     [self detectMountMode];
 }
@@ -1436,17 +1443,80 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     self.selectedSummaryButton.enabled = YES;
 }
 
-- (void)setActiveSchemeIDAndRefresh:(NSString *)schemeID {
-    self.activeSchemeID = [schemeID copy];
-    if (self.activeSchemeID.length) {
-        [NSUserDefaults.standardUserDefaults setObject:self.activeSchemeID forKey:@"FontChangeActiveSchemeID"];
-    } else {
-        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"FontChangeActiveSchemeID"];
+- (void)loadActiveSchemeState {
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    self.activeGlobalSchemeID = [defaults stringForKey:@"FontChangeActiveGlobalSchemeID"];
+    self.activeChineseSchemeID = [defaults stringForKey:@"FontChangeActiveChineseSchemeID"];
+    self.activeLatinSchemeID = [defaults stringForKey:@"FontChangeActiveLatinSchemeID"];
+    self.activeLockSchemeID = [defaults stringForKey:@"FontChangeActiveLockSchemeID"];
+
+    BOOL hasComponentState = self.activeGlobalSchemeID.length ||
+        self.activeChineseSchemeID.length || self.activeLatinSchemeID.length || self.activeLockSchemeID.length;
+    if (!hasComponentState && self.activeSchemeID.length) {
+        for (NSDictionary *scheme in self.fontSchemes) {
+            if (![scheme[@"id"] isEqualToString:self.activeSchemeID]) continue;
+            BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
+            if (customMode) {
+                if ([scheme[@"customChinesePath"] length]) self.activeChineseSchemeID = self.activeSchemeID;
+                if ([scheme[@"customLatinPath"] length]) self.activeLatinSchemeID = self.activeSchemeID;
+            } else if ([scheme[@"primaryPath"] length]) {
+                self.activeGlobalSchemeID = self.activeSchemeID;
+                if ([scheme[@"optionalPath"] length]) self.activeLockSchemeID = self.activeSchemeID;
+            } else if ([scheme[@"optionalPath"] length]) {
+                self.activeLockSchemeID = self.activeSchemeID;
+            }
+            break;
+        }
     }
+    [self refreshUsageAppearance];
+}
+
+- (void)refreshUsageAppearance {
+    NSSet<NSString *> *activeIDs = [NSSet setWithObjects:
+        self.activeGlobalSchemeID ?: @"", self.activeChineseSchemeID ?: @"",
+        self.activeLatinSchemeID ?: @"", self.activeLockSchemeID ?: @"", nil];
     for (FCFontSchemeCard *card in self.schemeStackView.arrangedSubviews) {
         if (![card isKindOfClass:FCFontSchemeCard.class]) continue;
-        [card setUsageAppearance:[card.schemeID isEqualToString:self.activeSchemeID]];
+        [card setUsageAppearance:[activeIDs containsObject:card.schemeID]];
     }
+}
+
+- (void)updateActiveStateForScheme:(NSDictionary *)scheme
+                           schemeID:(NSString *)schemeID
+                          restoring:(BOOL)restoring {
+    if (restoring) {
+        self.activeGlobalSchemeID = nil;
+        self.activeChineseSchemeID = nil;
+        self.activeLatinSchemeID = nil;
+        self.activeLockSchemeID = nil;
+        self.activeSchemeID = nil;
+    } else if ([scheme[@"schemeType"] isEqualToString:@"custom"]) {
+        if ([scheme[@"customChinesePath"] length]) self.activeChineseSchemeID = schemeID;
+        if ([scheme[@"customLatinPath"] length]) self.activeLatinSchemeID = schemeID;
+    } else if ([scheme[@"primaryPath"] length]) {
+        self.activeGlobalSchemeID = schemeID;
+        self.activeChineseSchemeID = nil;
+        self.activeLatinSchemeID = nil;
+        self.activeLockSchemeID = [scheme[@"optionalPath"] length] ? schemeID : nil;
+    } else if ([scheme[@"optionalPath"] length]) {
+        self.activeLockSchemeID = schemeID;
+    }
+    self.activeSchemeID = [schemeID copy];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary<NSString *, NSString *> *state = @{
+        @"FontChangeActiveGlobalSchemeID": self.activeGlobalSchemeID ?: @"",
+        @"FontChangeActiveChineseSchemeID": self.activeChineseSchemeID ?: @"",
+        @"FontChangeActiveLatinSchemeID": self.activeLatinSchemeID ?: @"",
+        @"FontChangeActiveLockSchemeID": self.activeLockSchemeID ?: @""
+    };
+    for (NSString *key in state) {
+        NSString *value = state[key];
+        if (value.length) [defaults setObject:value forKey:key];
+        else [defaults removeObjectForKey:key];
+    }
+    if (self.activeSchemeID.length) [defaults setObject:self.activeSchemeID forKey:@"FontChangeActiveSchemeID"];
+    else [defaults removeObjectForKey:@"FontChangeActiveSchemeID"];
+    [self refreshUsageAppearance];
 }
 
 - (void)toggleSelectedPreview {
@@ -1555,7 +1625,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         reorder.minimumPressDuration = 0.42;
         [card addGestureRecognizer:reorder];
         [card setSelectedAppearance:selected];
-        [card setUsageAppearance:[scheme[@"id"] isEqualToString:self.activeSchemeID]];
+        BOOL active = [scheme[@"id"] isEqualToString:self.activeGlobalSchemeID] ||
+            [scheme[@"id"] isEqualToString:self.activeChineseSchemeID] ||
+            [scheme[@"id"] isEqualToString:self.activeLatinSchemeID] ||
+            [scheme[@"id"] isEqualToString:self.activeLockSchemeID];
+        [card setUsageAppearance:active];
         [card setEditingAppearance:self.schemeEditing canUnlink:(hasGlobal && hasLock)];
         [card.widthAnchor constraintEqualToConstant:150].active = YES;
         [self.schemeStackView addArrangedSubview:card];
@@ -1586,7 +1660,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         if (![schemeCard isKindOfClass:FCFontSchemeCard.class]) continue;
         BOOL selected = [schemeCard.schemeID isEqualToString:self.selectedSchemeID];
         [schemeCard setSelectedAppearance:selected];
-        [schemeCard setUsageAppearance:[schemeCard.schemeID isEqualToString:self.activeSchemeID]];
+        [schemeCard setUsageAppearance:[schemeCard.schemeID isEqualToString:self.activeGlobalSchemeID] ||
+            [schemeCard.schemeID isEqualToString:self.activeChineseSchemeID] ||
+            [schemeCard.schemeID isEqualToString:self.activeLatinSchemeID] ||
+            [schemeCard.schemeID isEqualToString:self.activeLockSchemeID]];
     }
     [self scrollToSchemeIndex:card.schemeIndex animated:YES];
     self.statusLabel.text = [NSString stringWithFormat:@"已切换到“%@”；可直接预览或执行。",
@@ -1621,7 +1698,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [card.layer removeAnimationForKey:@"fontchange.reorder"];
         card.layer.shouldRasterize = NO;
         [card setEditingAppearance:NO canUnlink:NO];
-        [card setUsageAppearance:[card.schemeID isEqualToString:self.activeSchemeID]];
+        [card setUsageAppearance:[card.schemeID isEqualToString:self.activeGlobalSchemeID] ||
+            [card.schemeID isEqualToString:self.activeChineseSchemeID] ||
+            [card.schemeID isEqualToString:self.activeLatinSchemeID] ||
+            [card.schemeID isEqualToString:self.activeLockSchemeID]];
     }
     [self saveFontSchemes];
     [self updateSchemePageControl];
@@ -1777,7 +1857,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [scheme removeObjectForKey:@"optionalPath"];
     [scheme removeObjectForKey:@"optionalDisplayName"];
     if (deleteFile && optionalPath.length) [NSFileManager.defaultManager removeItemAtPath:optionalPath error:nil];
-    if ([schemeID isEqualToString:self.activeSchemeID]) [self setActiveSchemeIDAndRefresh:nil];
+    if ([schemeID isEqualToString:self.activeLockSchemeID]) {
+        self.activeLockSchemeID = nil;
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"FontChangeActiveLockSchemeID"];
+        [self refreshUsageAppearance];
+    }
     if ([schemeID isEqualToString:self.selectedSchemeID]) [self applySelectedScheme];
     [self saveFontSchemes];
     [self rebuildSchemeCards];
@@ -1798,7 +1882,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             break;
         }
     }
-    BOOL active = [scheme[@"id"] isEqualToString:self.activeSchemeID];
+    BOOL active = [scheme[@"id"] isEqualToString:self.activeLockSchemeID];
     NSString *message = active
         ? @"解除此方案与自定义锁屏时钟的绑定，不会立即改变设备当前锁屏字体；“使用中”标记将清除，再次执行方案后生效。"
         : @"解除此方案与自定义锁屏时钟的绑定，不会立即改变设备当前字体。";
@@ -2380,7 +2464,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 
 - (void)confirmRestoreSystemFonts {
     if ([self runHelperArguments:@[@"--system-font-state"] wait:YES] == 0) {
-        [self setActiveSchemeIDAndRefresh:nil];
+        [self updateActiveStateForScheme:nil schemeID:nil restoring:YES];
         UIAlertController *alreadyOriginal = [UIAlertController
             alertControllerWithTitle:@"当前已经是系统字体"
                              message:@"上次恢复后尚未通过 FontChange 覆盖其他字体，无需重复恢复、切换语言或重启用户空间。"
@@ -2459,6 +2543,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     NSString *optional = self.optionalPath ?: @"-";
     BOOL customScheme = [[self selectedScheme][@"schemeType"] isEqualToString:@"custom"];
     NSString *appliedSchemeID = [self.selectedSchemeID copy];
+    NSDictionary *appliedScheme = [[self selectedScheme] copy];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         int status = 0;
         NSMutableArray<NSString *> *stagedPaths = [NSMutableArray array];
@@ -2514,7 +2599,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                 self.statusLabel.text = report.length ? report : [NSString stringWithFormat:@"字体处理失败（%d）", status];
                 return;
             }
-            [self setActiveSchemeIDAndRefresh:restoringSystemFonts ? nil : appliedSchemeID];
+            [self updateActiveStateForScheme:appliedScheme
+                                     schemeID:appliedSchemeID
+                                    restoring:restoringSystemFonts];
             self.statusLabel.text = restoringSystemFonts
                 ? @"运行日志\n✓ 系统原生字体已恢复\n• 正在刷新语言缓存"
                 : sfuiOnly
