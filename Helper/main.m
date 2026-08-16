@@ -14,6 +14,7 @@
 #import <sys/mount.h>
 #import <sys/wait.h>
 #import <unistd.h>
+#import <dispatch/dispatch.h>
 
 extern char **environ;
 
@@ -982,9 +983,18 @@ static BOOL commitLanguages(NSArray<NSString *> *languages) {
     ((void (*)(id, SEL, id))objc_msgSend)(cls, NSSelectorFromString(@"setPreferredLanguages:"), languages);
     ((void (*)(id, SEL, id))objc_msgSend)(cls, NSSelectorFromString(@"setLanguage:"), languages.firstObject);
     ((void (*)(id, SEL))objc_msgSend)(cls, NSSelectorFromString(@"syncPreferencesAndPostNotificationForLanguageChange"));
-    void (^completion)(void) = ^{};
+    BOOL waitForWrite = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 16;
+    dispatch_semaphore_t writeSemaphore = waitForWrite ? dispatch_semaphore_create(0) : NULL;
+    void (^completion)(void) = waitForWrite
+        ? ^{ dispatch_semaphore_signal(writeSemaphore); }
+        : ^{};
     ((void (*)(id, SEL, id))objc_msgSend)(cls,
         NSSelectorFromString(@"writeLanguageAndLocaleConfigurationIfNeededWithCompletion:"), completion);
+    if (waitForWrite) {
+        dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC);
+        if (dispatch_semaphore_wait(writeSemaphore, timeout) != 0) return NO;
+        if (![NSUserDefaults.standardUserDefaults synchronize]) return NO;
+    }
     return YES;
 }
 
