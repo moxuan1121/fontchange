@@ -26,6 +26,7 @@ static BOOL FCIsSupportedImportExtension(NSString *extension, BOOL allowsTTC) {
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setDisplayName:(NSString *)name;
 - (void)setLockScreenPreview:(BOOL)lockScreenPreview;
+- (void)setPreviewKind:(NSString *)previewKind;
 - (void)setShowsSwitchHint:(BOOL)showsSwitchHint;
 - (void)clearFont;
 @end
@@ -44,6 +45,7 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
 @implementation FCFontPreviewView {
     CTFontRef _previewFont;
     NSString *_displayName;
+    NSString *_previewKind;
     BOOL _lockScreenPreview;
     BOOL _showsSwitchHint;
 }
@@ -61,7 +63,7 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
         [self setNeedsDisplay];
         return NO;
     }
-    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", path, _lockScreenPreview ? @"lock" : @"global"];
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", path, _previewKind ?: (_lockScreenPreview ? @"lock" : @"global")];
     CTFontRef cachedFont = (__bridge CTFontRef)[FCMainPreviewFontCache() objectForKey:cacheKey];
     if (cachedFont) {
         _previewFont = CFRetain(cachedFont);
@@ -72,7 +74,9 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         // A lock-screen font may intentionally contain only numerals. Select
         // the best face using the same characters that the preview will draw.
-        NSString *probe = _lockScreenPreview ? @"0123456789" : @"中文字体预览";
+        NSString *probe = _lockScreenPreview ? @"0123456789" :
+            ([_previewKind isEqualToString:@"custom-latin"] ? @"Aa·Bb · 0123456789" :
+             ([_previewKind isEqualToString:@"custom-chinese"] ? @"字形有温度，阅读更从容" : @"中文字体预览"));
         NSUInteger length = probe.length;
         UniChar *characters = calloc(length, sizeof(UniChar));
         CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
@@ -123,6 +127,12 @@ static NSCache<NSString *, id> *FCMainPreviewFontCache(void) {
 - (void)setLockScreenPreview:(BOOL)lockScreenPreview {
     if (_lockScreenPreview == lockScreenPreview) return;
     _lockScreenPreview = lockScreenPreview;
+    [self setNeedsDisplay];
+}
+
+- (void)setPreviewKind:(NSString *)previewKind {
+    if ([_previewKind isEqualToString:previewKind]) return;
+    _previewKind = [previewKind copy];
     [self setNeedsDisplay];
 }
 
@@ -248,6 +258,10 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
         if (_lockScreenPreview) {
             FCDrawCenteredPreviewLine(context, @"0123456789", headline, ink, width * 0.5,
                                       49 * scale, width - 40, 22 * scale);
+        } else if ([_previewKind isEqualToString:@"custom-chinese"]) {
+            FCDrawPreviewLine(context, @"字形有温度，阅读更从容", headline, ink, 20, 61 * scale, width - 40, 18 * scale);
+        } else if ([_previewKind isEqualToString:@"custom-latin"]) {
+            FCDrawPreviewLine(context, @"Aa·Bb · 0123456789", headline, ink, 20, 49 * scale, width - 40, 18 * scale);
         } else {
             FCDrawPreviewLine(context, @"字形有温度，阅读更从容。", headline, ink, 20, 61 * scale, width - 40, 18 * scale);
             FCDrawPreviewLine(context, @"四季流转 · Aa Bb · 0123456789", detail,
@@ -257,8 +271,6 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
             FCDrawPreviewName(context, _displayName, nameFont,
                               detailInk, width - 20, 9 * scale, width * 0.72);
         }
-    } else {
-        FCDrawPreviewLine(context, @"导入字体后，在这里实时预览。", headline, ink, 20, 55 * scale, width - 40, 18 * scale);
     }
     CFRelease(badge);
     CFRelease(headline);
@@ -272,6 +284,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 
 @interface FCFontSchemeSampleView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
+- (void)setPreviewText:(NSString *)previewText;
 @end
 
 static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
@@ -288,12 +301,16 @@ static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
 static void FCEvictPreviewFontAtPath(NSString *path) {
     if (!path.length) return;
     [FCSchemeSampleFontCache() removeObjectForKey:path];
+    [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|Aa"]];
+    [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|汉"]];
+    [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|0123456789"]];
     [FCMainPreviewFontCache() removeObjectForKey:[path stringByAppendingString:@"|global"]];
     [FCMainPreviewFontCache() removeObjectForKey:[path stringByAppendingString:@"|lock"]];
 }
 
 @implementation FCFontSchemeSampleView {
     CTFontRef _sampleFont;
+    NSString *_previewText;
 }
 
 - (void)dealloc {
@@ -309,7 +326,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [self setNeedsDisplay];
         return NO;
     }
-    CTFontRef cachedFont = (__bridge CTFontRef)[FCSchemeSampleFontCache() objectForKey:path];
+    NSString *cacheKey = [NSString stringWithFormat:@"%@|%@", path, _previewText ?: @"Aa"];
+    CTFontRef cachedFont = (__bridge CTFontRef)[FCSchemeSampleFontCache() objectForKey:cacheKey];
     if (cachedFont) {
         _sampleFont = CFRetain(cachedFont);
         [self setNeedsDisplay];
@@ -319,7 +337,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     const CFIndex requiredCoverage = 2;
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
-        NSString *probe = @"Aa";
+        NSString *probe = _previewText ?: @"Aa";
         NSUInteger length = probe.length;
         UniChar characters[8] = {0};
         CGGlyph glyphs[8] = {0};
@@ -346,7 +364,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     }
     if (descriptors) CFRelease(descriptors);
     if (_sampleFont && bestCoverage == requiredCoverage) {
-        [FCSchemeSampleFontCache() setObject:(__bridge id)_sampleFont forKey:path];
+        [FCSchemeSampleFontCache() setObject:(__bridge id)_sampleFont forKey:cacheKey];
     } else if (_sampleFont) {
         CFRelease(_sampleFont);
         _sampleFont = NULL;
@@ -355,20 +373,28 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     return _sampleFont != NULL;
 }
 
+- (void)setPreviewText:(NSString *)previewText {
+    _previewText = [previewText copy];
+    [self setNeedsDisplay];
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef context = UIGraphicsGetCurrentContext();
     CGContextSaveGState(context);
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
+    if (!_sampleFont) {
+        CGContextRestoreGState(context);
+        return;
+    }
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
-    CTFontRef font = _sampleFont ? CTFontCreateCopyWithAttributes(_sampleFont, 56.0, NULL, NULL)
-                                 : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 56.0, NULL);
+    CTFontRef font = CTFontCreateCopyWithAttributes(_sampleFont, 56.0, NULL, NULL);
     NSDictionary *attributes = @{
         (__bridge id)kCTFontAttributeName: (__bridge id)font,
         (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
     };
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-        [[NSAttributedString alloc] initWithString:@"Aa" attributes:attributes]);
+        [[NSAttributedString alloc] initWithString:_previewText ?: @"Aa" attributes:attributes]);
     // Keep every card at the same 56pt sample size. This intentionally does
     // not follow Dynamic Type or shrink wide faces to fit.
     CGContextSetTextPosition(context, 0, 9);
@@ -1455,11 +1481,20 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 }
 
 - (void)prepareSchemePreview:(NSDictionary *)scheme forCard:(FCFontSchemeCard *)card {
-    NSString *source = [scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"];
+    BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
+    BOOL hasChinese = [scheme[@"customChinesePath"] length] > 0;
+    BOOL hasLatin = [scheme[@"customLatinPath"] length] > 0;
+    NSString *source = customMode
+        ? (hasChinese ? scheme[@"customChinesePath"] : scheme[@"customLatinPath"])
+        : ([scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"]);
     if (!source.length) return;
-    // Card samples need a Latin face for "Aa". Keep this separate from the
-    // large global preview, which intentionally uses PingFang for Chinese.
-    NSString *kind = [scheme[@"primaryPath"] length] ? @"primary-card" : @"optional";
+    NSString *kind = customMode
+        ? (hasChinese ? @"custom-chinese" : @"custom-latin")
+        : ([scheme[@"primaryPath"] length] ? @"primary-card" : @"optional");
+    NSString *sampleText = customMode
+        ? (hasChinese ? @"汉" : @"Aa")
+        : ([scheme[@"primaryPath"] length] ? @"Aa" : @"0123456789");
+    [card.sampleView setPreviewText:sampleText];
     NSString *schemeID = [scheme[@"id"] copy];
     __weak FCFontSchemeCard *weakCard = card;
     [self requestPreviewForSchemeID:schemeID kind:kind source:source completion:^(NSString *path) {
@@ -2045,7 +2080,14 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)refreshFontPreviewForSlot:(NSInteger)slot {
     self.previewGeneration++;
     NSUInteger generation = self.previewGeneration;
-    [self.previewView setLockScreenPreview:(slot >= 2)];
+    NSDictionary *scheme = [self selectedScheme];
+    BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
+    BOOL customChinesePreview = customMode && slot == 1 && [scheme[@"customChinesePath"] length] > 0;
+    BOOL customLatinPreview = customMode && [scheme[@"customLatinPath"] length] > 0 &&
+        (slot >= 2 || ![scheme[@"customChinesePath"] length]);
+    [self.previewView setLockScreenPreview:slot >= 2 && !customMode];
+    [self.previewView setPreviewKind:customChinesePreview ? @"custom-chinese" :
+        (customLatinPreview ? @"custom-latin" : (slot >= 2 ? @"lock" : @"global"))];
     NSString *source = slot >= 2 ? self.optionalPath : self.primaryPath;
     if (!source.length) {
         [self.previewView clearFont];

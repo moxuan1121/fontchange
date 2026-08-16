@@ -426,6 +426,19 @@ static NSString *findLatinCardFont(NSString *extracted) {
     return candidates.firstObject[@"path"];
 }
 
+static NSString *findChineseCardFont(NSString *extracted) {
+    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extracted];
+    for (NSString *relative in enumerator) {
+        NSString *extension = relative.pathExtension.lowercaseString;
+        if (![@[@"ttf", @"ttc"] containsObject:extension]) continue;
+        if (![relative.lastPathComponent.lowercaseString containsString:@"pingfang"]) continue;
+        [candidates addObject:[extracted stringByAppendingPathComponent:relative]];
+    }
+    [candidates sortUsingSelector:@selector(compare:)];
+    return candidates.firstObject;
+}
+
 static int preparePreview(NSString *kind, NSString *zipPath, NSString *destination) {
     NSString *temporary = [NSString stringWithUTF8String:jbroot("/var/tmp")];
     NSString *work = [temporary stringByAppendingPathComponent:
@@ -443,6 +456,8 @@ static int preparePreview(NSString *kind, NSString *zipPath, NSString *destinati
     NSString *source = nil;
     if ([kind isEqualToString:@"primary"]) {
         source = findFileNamed(work, @"PingFang.ttc", &failure);
+    } else if ([kind isEqualToString:@"custom-chinese"]) {
+        source = findChineseCardFont(work);
     } else if ([kind isEqualToString:@"primary-card"]) {
         // Use a short, deterministic candidate list for the card's "Aa".
         // Do not scan every font face: malformed/large collections should not
@@ -456,6 +471,8 @@ static int preparePreview(NSString *kind, NSString *zipPath, NSString *destinati
             if (source) break;
         }
         if (!source) source = findLatinCardFont(work);
+    } else if ([kind isEqualToString:@"custom-latin"]) {
+        source = findLatinCardFont(work);
     } else if ([kind isEqualToString:@"optional"]) {
         source = findOptionalClockFont(work, &failure);
     }
