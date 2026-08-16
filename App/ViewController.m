@@ -701,6 +701,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
                              kind:(NSString *)kind
                            source:(NSString *)source
                        completion:(FCPreviewCompletion)completion;
+- (void)appendZIPPurposeActionsToAlert:(UIAlertController *)alert
+                       hasCurrentScheme:(BOOL)hasCurrentScheme
+                             completion:(void (^)(NSInteger slot))completion;
 @end
 
 @implementation ViewController
@@ -2134,6 +2137,29 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [self presentViewController:alert animated:YES completion:nil];
 }
 
+- (void)appendZIPPurposeActionsToAlert:(UIAlertController *)alert
+                       hasCurrentScheme:(BOOL)hasCurrentScheme
+                             completion:(void (^)(NSInteger slot))completion {
+    [alert addAction:[UIAlertAction actionWithTitle:@"导入全局字体 ZIP" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        completion(1);
+    }]];
+    if (hasCurrentScheme) {
+        [alert addAction:[UIAlertAction actionWithTitle:@"为当前方案设置锁屏字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            completion(2);
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"新建仅锁屏字体方案" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        completion(3);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"高级自定义：中文字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        completion(4);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"高级自定义：英数字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        completion(5);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+}
+
 - (void)showImportMenu {
     BOOL hasCurrentScheme = [self selectedScheme] != nil;
     UIAlertController *menu = [UIAlertController alertControllerWithTitle:@"导入字体"
@@ -2141,24 +2167,9 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             ? @"导入全局字体会新建方案；锁屏字体可加入当前方案，也可单独建立方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
             : @"导入全局字体或建立一个仅锁屏字体方案。\n\n⚠️ 请先将字体文件保存到“我的 iPhone”，不要直接从 iCloud 云盘导入。也支持从其他 App 通过系统分享菜单导入。"
         preferredStyle:UIAlertControllerStyleActionSheet];
-    [menu addAction:[UIAlertAction actionWithTitle:@"导入全局字体 ZIP" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [self presentPickerForSlot:1];
-    }]];
-    if (hasCurrentScheme) {
-        [menu addAction:[UIAlertAction actionWithTitle:@"为当前方案设置锁屏字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-            [self presentPickerForSlot:2];
-        }]];
-    }
-    [menu addAction:[UIAlertAction actionWithTitle:@"新建仅锁屏字体方案" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [self presentPickerForSlot:3];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"高级自定义：中文字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [self presentPickerForSlot:4];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"高级自定义：英数字体" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [self presentPickerForSlot:5];
-    }]];
-    [menu addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self appendZIPPurposeActionsToAlert:menu hasCurrentScheme:hasCurrentScheme completion:^(NSInteger slot) {
+        [self presentPickerForSlot:slot];
+    }];
     menu.popoverPresentationController.sourceView = self.importButton;
     menu.popoverPresentationController.sourceRect = self.importButton.bounds;
     [self presentViewController:menu animated:YES completion:nil];
@@ -2257,32 +2268,15 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             self.statusLabel.text = @"外部导入仅支持 ZIP 或 TTC 文件。";
             return;
         }
+        BOOL hasCurrentScheme = [self selectedScheme] != nil;
         UIAlertController *alert = [UIAlertController
             alertControllerWithTitle:@"导入字体文件"
-                             message:@"请选择这个 ZIP 的用途。"
+                             message:@"请选择这个 ZIP 的用途，与 App 内“导入字体”的选项一致。"
                       preferredStyle:UIAlertControllerStyleAlert];
-        BOOL hasCurrentScheme = [self selectedScheme] != nil;
-        [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"作为主要字体包"
-                                                style:UIAlertActionStyleDefault
-                                              handler:^(__unused UIAlertAction *action) {
-            self.pickingSlot = 1;
+        [self appendZIPPurposeActionsToAlert:alert hasCurrentScheme:hasCurrentScheme completion:^(NSInteger slot) {
+            self.pickingSlot = slot;
             [self importPickedURL:url];
-        }]];
-        if (hasCurrentScheme) {
-            [alert addAction:[UIAlertAction actionWithTitle:@"加入当前方案的锁屏字体"
-                                                    style:UIAlertActionStyleDefault
-                                                  handler:^(__unused UIAlertAction *action) {
-                self.pickingSlot = 2;
-                [self importPickedURL:url];
-            }]];
-        }
-        [alert addAction:[UIAlertAction actionWithTitle:@"新建仅锁屏方案"
-                                                style:UIAlertActionStyleDefault
-                                              handler:^(__unused UIAlertAction *action) {
-            self.pickingSlot = 3;
-            [self importPickedURL:url];
-        }]];
+        }];
         [self presentViewController:alert animated:YES completion:nil];
     });
 }
