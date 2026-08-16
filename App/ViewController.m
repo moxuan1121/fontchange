@@ -337,11 +337,12 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         return YES;
     }
     CFIndex bestCoverage = -1;
-    const CFIndex requiredCoverage = 2;
+    CFIndex requiredCoverage = 0;
     CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL((__bridge CFURLRef)[NSURL fileURLWithPath:path]);
     if (descriptors && CFArrayGetCount(descriptors) > 0) {
         NSString *probe = _previewText ?: @"Aa";
         NSUInteger length = probe.length;
+        requiredCoverage = (CFIndex)length;
         UniChar *characters = calloc(length, sizeof(UniChar));
         CGGlyph *glyphs = calloc(length, sizeof(CGGlyph));
         [probe getCharacters:characters range:NSMakeRange(0, length)];
@@ -388,12 +389,10 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     CGContextSaveGState(context);
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
-    if (!_sampleFont) {
-        CGContextRestoreGState(context);
-        return;
-    }
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
-    CTFontRef font = CTFontCreateCopyWithAttributes(_sampleFont, 56.0, NULL, NULL);
+    CTFontRef font = _sampleFont
+        ? CTFontCreateCopyWithAttributes(_sampleFont, 56.0, NULL, NULL)
+        : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 56.0, NULL);
     NSDictionary *attributes = @{
         (__bridge id)kCTFontAttributeName: (__bridge id)font,
         (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
