@@ -172,37 +172,6 @@ static void FCDrawPreviewLine(CGContextRef context, NSString *text, CTFontRef so
     CFRelease(font);
 }
 
-static void FCDrawCenteredPreviewLine(CGContextRef context, NSString *text, CTFontRef sourceFont,
-                                      UIColor *color, CGFloat centerX, CGFloat baseline,
-                                      CGFloat maxWidth, CGFloat minimumSize) {
-    CTFontRef font = CFRetain(sourceFont);
-    NSDictionary *attributes = @{
-        (__bridge id)kCTFontAttributeName: (__bridge id)font,
-        (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
-    };
-    CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
-    CGFloat width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-    if (width > maxWidth) {
-        CGFloat size = MAX(minimumSize, CTFontGetSize(font) * maxWidth / MAX(1.0, width));
-        CTFontRef fitted = CTFontCreateCopyWithAttributes(font, size, NULL, NULL);
-        CFRelease(font);
-        font = fitted;
-        CFRelease(line);
-        attributes = @{
-            (__bridge id)kCTFontAttributeName: (__bridge id)font,
-            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)color.CGColor
-        };
-        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
-        width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-    }
-    CGContextSetTextPosition(context, centerX - width * 0.5, baseline);
-    CTLineDraw(line, context);
-    CFRelease(line);
-    CFRelease(font);
-}
-
 static void FCDrawCenteredPreviewLineVertically(CGContextRef context, NSString *text,
                                                 CTFontRef sourceFont, UIColor *color,
                                                 CGFloat centerX, CGFloat centerY,
