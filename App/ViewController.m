@@ -346,7 +346,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
             CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(descriptors, index);
             CTFontRef candidate = CTFontCreateWithFontDescriptor(descriptor, 56.0, NULL);
             if (!candidate) continue;
-            memset(glyphs, 0, sizeof(glyphs));
+            memset(glyphs, 0, length * sizeof(CGGlyph));
             CTFontGetGlyphsForCharacters(candidate, characters, glyphs, length);
             CFIndex coverage = 0;
             for (NSUInteger characterIndex = 0; characterIndex < length; characterIndex++) {
