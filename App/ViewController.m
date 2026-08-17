@@ -288,6 +288,7 @@ static void FCDrawPreviewName(CGContextRef context, NSString *text, CTFontRef fo
 @interface FCFontSchemeSampleView : UIView
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setPreviewText:(NSString *)previewText;
+- (void)setFitsPreviewToBounds:(BOOL)fitsPreviewToBounds;
 @end
 
 static NSCache<NSString *, id> *FCSchemeSampleFontCache(void) {
@@ -306,6 +307,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [FCSchemeSampleFontCache() removeObjectForKey:path];
     [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|Aa"]];
     [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|汉"]];
+    [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|123"]];
     [FCSchemeSampleFontCache() removeObjectForKey:[path stringByAppendingString:@"|0123456789"]];
     [FCMainPreviewFontCache() removeObjectForKey:[path stringByAppendingString:@"|global"]];
     [FCMainPreviewFontCache() removeObjectForKey:[path stringByAppendingString:@"|lock"]];
@@ -314,6 +316,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @implementation FCFontSchemeSampleView {
     CTFontRef _sampleFont;
     NSString *_previewText;
+    BOOL _fitsPreviewToBounds;
 }
 
 - (void)dealloc {
@@ -384,24 +387,67 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     [self setNeedsDisplay];
 }
 
+- (void)setFitsPreviewToBounds:(BOOL)fitsPreviewToBounds {
+    if (_fitsPreviewToBounds == fitsPreviewToBounds) return;
+    _fitsPreviewToBounds = fitsPreviewToBounds;
+    [self setNeedsDisplay];
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef context = UIGraphicsGetCurrentContext();
     CGContextSaveGState(context);
     CGContextTranslateCTM(context, 0, CGRectGetHeight(rect));
     CGContextScaleCTM(context, 1, -1);
     UIColor *ink = [UIColor.labelColor resolvedColorWithTraitCollection:self.traitCollection];
+    NSString *text = _previewText ?: @"Aa";
+    CGFloat maximumSize = 56.0;
+    CGFloat horizontalInset = _fitsPreviewToBounds ? 4.0 : 0.0;
+    CGFloat availableWidth = MAX(1.0, CGRectGetWidth(rect) - horizontalInset * 2.0);
+    CGFloat fittedSize = maximumSize;
     CTFontRef font = _sampleFont
-        ? CTFontCreateCopyWithAttributes(_sampleFont, 56.0, NULL, NULL)
-        : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 56.0, NULL);
+        ? CTFontCreateCopyWithAttributes(_sampleFont, fittedSize, NULL, NULL)
+        : CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, fittedSize, NULL);
     NSDictionary *attributes = @{
         (__bridge id)kCTFontAttributeName: (__bridge id)font,
         (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
     };
     CTLineRef line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
-        [[NSAttributedString alloc] initWithString:_previewText ?: @"Aa" attributes:attributes]);
-    // Keep every card at the same 56pt sample size. This intentionally does
-    // not follow Dynamic Type or shrink wide faces to fit.
-    CGContextSetTextPosition(context, 0, 9);
+        [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+    CGFloat typographicWidth = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    CGRect glyphBounds = CTLineGetBoundsWithOptions(line, kCTLineBoundsUseGlyphPathBounds);
+    CGFloat visualMinX = CGRectIsNull(glyphBounds) ? 0.0 : MIN(0.0, CGRectGetMinX(glyphBounds));
+    CGFloat visualMaxX = CGRectIsNull(glyphBounds) ? typographicWidth
+        : MAX(typographicWidth, CGRectGetMaxX(glyphBounds));
+    CGFloat measuredWidth = MAX(1.0, visualMaxX - visualMinX);
+    if (_fitsPreviewToBounds && measuredWidth > availableWidth) {
+        fittedSize = maximumSize * availableWidth / measuredWidth;
+        CTFontRef fittedFont = CTFontCreateCopyWithAttributes(font, fittedSize, NULL, NULL);
+        CFRelease(font);
+        font = fittedFont;
+        CFRelease(line);
+        attributes = @{
+            (__bridge id)kCTFontAttributeName: (__bridge id)font,
+            (__bridge id)kCTForegroundColorAttributeName: (__bridge id)ink.CGColor
+        };
+        line = CTLineCreateWithAttributedString((__bridge CFAttributedStringRef)
+            [[NSAttributedString alloc] initWithString:text attributes:attributes]);
+        typographicWidth = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+        glyphBounds = CTLineGetBoundsWithOptions(line, kCTLineBoundsUseGlyphPathBounds);
+        visualMinX = CGRectIsNull(glyphBounds) ? 0.0 : MIN(0.0, CGRectGetMinX(glyphBounds));
+        visualMaxX = CGRectIsNull(glyphBounds) ? typographicWidth
+            : MAX(typographicWidth, CGRectGetMaxX(glyphBounds));
+    }
+    CGFloat textX = 0.0;
+    CGFloat baseline = 9.0;
+    if (_fitsPreviewToBounds) {
+        CGFloat renderedWidth = MAX(1.0, visualMaxX - visualMinX);
+        textX = horizontalInset + MAX(0.0, (availableWidth - renderedWidth) * 0.5) - visualMinX;
+        CGFloat ascent = 0.0;
+        CGFloat descent = 0.0;
+        CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
+        baseline = (CGRectGetHeight(rect) - ascent - descent) * 0.5 + descent;
+    }
+    CGContextSetTextPosition(context, textX, baseline);
     CTLineDraw(line, context);
     CFRelease(line);
     CFRelease(font);
@@ -422,8 +468,6 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *sampleTopConstraint;
-@property(nonatomic, copy) NSString *lastFittedName;
-@property(nonatomic) CGFloat lastFittedNameWidth;
 @property(nonatomic) BOOL showsUsage;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setSelectedAppearance:(BOOL)selected;
@@ -456,11 +500,11 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     _nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _nameLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     _nameLabel.textColor = UIColor.labelColor;
-    _nameLabel.numberOfLines = 2;
+    _nameLabel.numberOfLines = 1;
     _nameLabel.adjustsFontSizeToFitWidth = YES;
     _nameLabel.minimumScaleFactor = 0.62;
     _nameLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
-    _nameLabel.lineBreakMode = NSLineBreakByCharWrapping;
+    _nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
 
     _detailLabel = [[UILabel alloc] init];
     _detailLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -541,28 +585,6 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     return self;
 }
 
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    if (!self.nameLabel.text.length || CGRectGetWidth(self.nameLabel.bounds) <= 1.0) return;
-    CGFloat availableWidth = CGRectGetWidth(self.nameLabel.bounds);
-    if ([self.lastFittedName isEqualToString:self.nameLabel.text]
-        && fabs(self.lastFittedNameWidth - availableWidth) < 0.5) return;
-    CGFloat availableHeight = 36.0;
-    CGFloat fittedSize = 14.0;
-    while (fittedSize > 8.0) {
-        UIFont *font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
-        CGRect measured = [self.nameLabel.text boundingRectWithSize:CGSizeMake(availableWidth, CGFLOAT_MAX)
-            options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
-            attributes:@{NSFontAttributeName: font} context:nil];
-        if (CGRectGetHeight(measured) <= availableHeight + 0.5) break;
-        fittedSize -= 0.5;
-    }
-    if (fabs(self.nameLabel.font.pointSize - fittedSize) > 0.1) {
-        self.nameLabel.font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
-    }
-    self.lastFittedName = self.nameLabel.text;
-    self.lastFittedNameWidth = availableWidth;
-}
 
 - (BOOL)loadFontAtPath:(NSString *)path {
     return [self.sampleView loadFontAtPath:path];
@@ -1568,16 +1590,18 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 - (void)prepareSchemePreview:(NSDictionary *)scheme forCard:(FCFontSchemeCard *)card {
     BOOL customMode = [scheme[@"schemeType"] isEqualToString:@"custom"];
     BOOL hasChinese = [scheme[@"customChinesePath"] length] > 0;
+    BOOL hasPrimary = [scheme[@"primaryPath"] length] > 0;
     NSString *source = customMode
         ? (hasChinese ? scheme[@"customChinesePath"] : scheme[@"customLatinPath"])
-        : ([scheme[@"primaryPath"] length] ? scheme[@"primaryPath"] : scheme[@"optionalPath"]);
+        : (hasPrimary ? scheme[@"primaryPath"] : scheme[@"optionalPath"]);
     if (!source.length) return;
     NSString *kind = customMode
         ? (hasChinese ? @"custom-chinese" : @"custom-latin")
-        : ([scheme[@"primaryPath"] length] ? @"primary-card" : @"optional");
+        : (hasPrimary ? @"primary-card" : @"optional");
     NSString *sampleText = customMode
         ? (hasChinese ? @"汉" : @"Aa")
-        : ([scheme[@"primaryPath"] length] ? @"Aa" : @"123");
+        : (hasPrimary ? @"Aa" : @"123");
+    [card.sampleView setFitsPreviewToBounds:(customMode || !hasPrimary)];
     [card.sampleView setPreviewText:sampleText];
     NSString *schemeID = [scheme[@"id"] copy];
     __weak FCFontSchemeCard *weakCard = card;
