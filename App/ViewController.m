@@ -468,6 +468,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
 @property(nonatomic, strong) NSLayoutConstraint *detailToBadgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *detailToEdgeConstraint;
 @property(nonatomic, strong) NSLayoutConstraint *sampleTopConstraint;
+@property(nonatomic, copy) NSString *lastFittedName;
+@property(nonatomic) CGFloat lastFittedNameWidth;
 @property(nonatomic) BOOL showsUsage;
 - (BOOL)loadFontAtPath:(NSString *)path;
 - (void)setSelectedAppearance:(BOOL)selected;
@@ -500,9 +502,8 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     _nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _nameLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
     _nameLabel.textColor = UIColor.labelColor;
-    _nameLabel.numberOfLines = 1;
-    _nameLabel.adjustsFontSizeToFitWidth = YES;
-    _nameLabel.minimumScaleFactor = 0.62;
+    _nameLabel.numberOfLines = 2;
+    _nameLabel.adjustsFontSizeToFitWidth = NO;
     _nameLabel.baselineAdjustment = UIBaselineAdjustmentAlignCenters;
     _nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
 
@@ -569,6 +570,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         [_nameLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_nameLabel.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
         [_nameLabel.topAnchor constraintEqualToAnchor:_sampleView.bottomAnchor constant:6],
+        [_nameLabel.heightAnchor constraintEqualToConstant:36],
         [_detailLabel.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:16],
         [_detailLabel.topAnchor constraintGreaterThanOrEqualToAnchor:_nameLabel.bottomAnchor constant:8],
         [_detailLabel.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-12],
@@ -583,6 +585,32 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
     ]];
     [self setSelectedAppearance:NO];
     return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (!self.nameLabel.text.length || CGRectGetWidth(self.nameLabel.bounds) <= 1.0) return;
+    CGFloat availableWidth = CGRectGetWidth(self.nameLabel.bounds);
+    CGFloat availableHeight = CGRectGetHeight(self.nameLabel.bounds);
+    if ([self.lastFittedName isEqualToString:self.nameLabel.text]
+        && fabs(self.lastFittedNameWidth - availableWidth) < 0.5) return;
+    NSMutableParagraphStyle *paragraph = [[NSMutableParagraphStyle alloc] init];
+    paragraph.lineBreakMode = NSLineBreakByCharWrapping;
+    CGFloat fittedSize = 14.0;
+    while (fittedSize > 8.0) {
+        UIFont *font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
+        CGRect measured = [self.nameLabel.text boundingRectWithSize:CGSizeMake(availableWidth, CGFLOAT_MAX)
+            options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+            attributes:@{NSFontAttributeName: font, NSParagraphStyleAttributeName: paragraph}
+            context:nil];
+        if (ceil(CGRectGetHeight(measured)) <= availableHeight + 0.5) break;
+        fittedSize -= 0.5;
+    }
+    if (fabs(self.nameLabel.font.pointSize - fittedSize) > 0.1) {
+        self.nameLabel.font = [UIFont systemFontOfSize:fittedSize weight:UIFontWeightSemibold];
+    }
+    self.lastFittedName = self.nameLabel.text;
+    self.lastFittedNameWidth = availableWidth;
 }
 
 

@@ -19,13 +19,17 @@ def method(return_type: str, name: str) -> str:
 
 
 class SchemeCardLayoutTests(unittest.TestCase):
-    def test_scheme_names_are_single_line_and_shrink_before_truncating(self):
-        self.assertIn("_nameLabel.numberOfLines = 1;", SOURCE)
-        self.assertIn("_nameLabel.adjustsFontSizeToFitWidth = YES;", SOURCE)
-        self.assertIn("_nameLabel.minimumScaleFactor", SOURCE)
+    def test_scheme_names_use_two_lines_and_shrink_when_needed(self):
+        self.assertIn("_nameLabel.numberOfLines = 2;", SOURCE)
+        self.assertIn("_nameLabel.adjustsFontSizeToFitWidth = NO;", SOURCE)
         self.assertIn("_nameLabel.lineBreakMode = NSLineBreakByTruncatingTail;", SOURCE)
-        self.assertNotIn("_nameLabel.numberOfLines = 2;", SOURCE)
-        self.assertNotIn("_nameLabel.lineBreakMode = NSLineBreakByCharWrapping;", SOURCE)
+        self.assertIn("_nameLabel.heightAnchor constraintEqualToConstant:36", SOURCE)
+        body = method("void", "layoutSubviews")
+        self.assertIn("boundingRectWithSize", body)
+        self.assertIn("availableWidth", body)
+        self.assertIn("availableHeight", body)
+        self.assertIn("fittedSize", body)
+        self.assertIn("while (fittedSize > 8.0)", body)
 
     def test_custom_samples_fit_actual_glyph_bounds_inside_margins(self):
         body = method("void", "drawRect:")
