@@ -40,7 +40,7 @@ FontChange 是一款面向 iOS 15+ 越狱设备的字体管理工具。它把字
 - Dopamine RootHide：`iphoneos-arm64e`
 - zqbb 挂载版 Dopamine：`iphoneos-arm64`
 - [`mount-bindfs-dopamine`](https://github.com/lunaynx/mount-bindfs-dopamine) 外部字体挂载方案
-- 当前版本：`1.2`
+- 当前版本：`1.2.1`
 
 两个安装包使用相同的包标识 `com.moxuan.fontchange`。请选择与你当前越狱环境对应的版本，不要交叉安装。
 
@@ -64,8 +64,8 @@ make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
 
 ## 安装包
 
-- RootHide：`com.moxuan.fontchange_1.2_iphoneos-arm64e.deb`
-- zqbb 挂载版 Dopamine：`com.moxuan.fontchange_1.2_iphoneos-arm64.deb`
+- RootHide：`com.moxuan.fontchange_1.2.1_iphoneos-arm64e.deb`
+- zqbb 挂载版 Dopamine：`com.moxuan.fontchange_1.2.1_iphoneos-arm.deb`
 
 通过 Sileo、Zebra 或其他兼容的包管理器安装。首次真机测试前，建议保留可用的系统恢复方式，并确认重要数据已经保存。
 
