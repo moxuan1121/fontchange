@@ -350,16 +350,18 @@ static NSDictionary<NSString *, NSString *> *primarySourcesForIndex(
     return selected;
 }
 
-static BOOL usesADTimeClockFont(void) {
-    return NSProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 16;
-}
-
 static NSString *lockScreenFontFileName(void) {
-    return usesADTimeClockFont() ? @"ADTime.ttc" : @"SFUISoft.ttc";
+    NSInteger majorVersion = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    if (majorVersion >= 17) return @"ADTNumeric.ttc";
+    if (majorVersion >= 16) return @"ADTime.ttc";
+    return @"SFUISoft.ttc";
 }
 
 static NSString *lockScreenFontRelativeTarget(void) {
-    return usesADTimeClockFont() ? @"Watch/ADTime.ttc" : @"CoreUI/SFUISoft.ttc";
+    NSInteger majorVersion = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    if (majorVersion >= 17) return @"Watch/ADTNumeric.ttc";
+    if (majorVersion >= 16) return @"Watch/ADTime.ttc";
+    return @"CoreUI/SFUISoft.ttc";
 }
 
 static NSString *findOptionalClockFont(NSString *extracted, NSString **failure) {
