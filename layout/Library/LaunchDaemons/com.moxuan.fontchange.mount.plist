@@ -6,7 +6,7 @@
     <string>com.moxuan.fontchange.mount</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/var/jb/usr/libexec/fontchange-mount</string>
+        <string>/usr/libexec/fontchange-mount</string>
         <string>daemon</string>
     </array>
     <key>RunAtLoad</key>
