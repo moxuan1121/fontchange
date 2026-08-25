@@ -55,8 +55,6 @@ static void *FCOpenLibjailbreak(void) {
     const char *candidates[] = {
         translatedBasebin,
         translatedUsrLib,
-        "/var/jb/basebin/libjailbreak.dylib",
-        "/var/jb/usr/lib/libjailbreak.dylib",
         NULL
     };
     for (NSUInteger index = 0; candidates[index]; index++) {
