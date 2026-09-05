@@ -2499,7 +2499,7 @@ static void FCEvictPreviewFontAtPath(NSString *path) {
         if (ttcType) types = @[UTTypeZIP, ttcType];
     }
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
-        initForOpeningContentTypes:types asCopy:NO];
+        initForOpeningContentTypes:types asCopy:YES];
     picker.delegate = self;
     picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
